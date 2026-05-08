@@ -321,6 +321,8 @@ def main():
         help="esptool target: auto (default), esp32s3, esp32c6, ... (must match connected chip)",
     )
     parser.add_argument("--baud", type=int, default=460800, help="Flash baud rate (default: 460800)")
+    parser.add_argument("--chip", choices=["esp32s3", "esp32c6"], default="esp32s3",
+                        help="ESP32 chip type (default: esp32s3)")
     parser.add_argument("--ssid", help="WiFi SSID")
     parser.add_argument("--password", help="WiFi password")
     parser.add_argument("--target-ip", help="Aggregator host IP (e.g. 192.168.1.20)")
@@ -438,7 +440,7 @@ def main():
         except ValueError:
             parser.error(f"--filter-mac contains invalid hex bytes: '{args.filter_mac}'")
 
-    print("Building NVS configuration:")
+    print(f"Building NVS configuration for {args.chip}:")
     if args.ssid:
         print(f"  WiFi SSID:     {args.ssid}")
     if args.password is not None:
