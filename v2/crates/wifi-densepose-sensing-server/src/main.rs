@@ -1206,17 +1206,17 @@ fn parse_esp32_frame(buf: &[u8]) -> Option<Esp32Frame> {
     //   [20..]   I/Q data
     let node_id = buf[4];
     let n_antennas = buf[5];
-    let n_subcarriers = buf[6];
-    let freq_mhz = u16::from_le_bytes([buf[8], buf[9]]);
-    let sequence = u32::from_le_bytes([buf[10], buf[11], buf[12], buf[13]]);
-    let rssi_raw = buf[14] as i8;
+    let n_subcarriers = u16::from_le_bytes([buf[6], buf[7]]);
+    let freq_mhz = u32::from_le_bytes([buf[8], buf[9], buf[10], buf[11]]);
+    let sequence = u32::from_le_bytes([buf[12], buf[13], buf[14], buf[15]]);
+    let rssi_raw = buf[16] as i8;
     // Fix RSSI sign: ensure it's always negative (dBm convention).
     let rssi = if rssi_raw > 0 {
         rssi_raw.saturating_neg()
     } else {
         rssi_raw
     };
-    let noise_floor = buf[15] as i8;
+    let noise_floor = buf[17] as i8;
 
     let iq_start = 20;
     let n_pairs = n_antennas as usize * n_subcarriers as usize;

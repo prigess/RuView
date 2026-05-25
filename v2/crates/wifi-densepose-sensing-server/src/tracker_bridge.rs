@@ -333,6 +333,10 @@ mod tests {
                 height: 1.0,
             },
             zone: "test".to_string(),
+            pose: "standing".to_string(),
+            position: [0.0, 0.0, 0.0],
+            motion_score: 0.0,
+            facing: 0.0,
         }
     }
 
