@@ -1071,10 +1071,14 @@ struct Esp32VitalsPacket {
     presence: bool,
     fall_detected: bool,
     motion: bool,
+    radar_present: bool,
     breathing_rate_bpm: f64,
     heartrate_bpm: f64,
     rssi: i8,
     n_persons: u8,
+    radar_type: u8,      // 0=none, 1=MR60BHA2, 2=LD2410
+    radar_targets: u8,
+    radar_dist_cm: u16,
     motion_energy: f32,
     presence_score: f32,
     timestamp_ms: u32,
@@ -1096,19 +1100,26 @@ fn parse_esp32_vitals(buf: &[u8]) -> Option<Esp32VitalsPacket> {
     let heartrate_raw = u32::from_le_bytes([buf[8], buf[9], buf[10], buf[11]]);
     let rssi = buf[12] as i8;
     let n_persons = buf[13];
+    let radar_type = buf[14];
+    let radar_targets = buf[15];
     let motion_energy = f32::from_le_bytes([buf[16], buf[17], buf[18], buf[19]]);
     let presence_score = f32::from_le_bytes([buf[20], buf[21], buf[22], buf[23]]);
     let timestamp_ms = u32::from_le_bytes([buf[24], buf[25], buf[26], buf[27]]);
+    let radar_dist_cm = u16::from_le_bytes([buf[28], buf[29]]);
 
     Some(Esp32VitalsPacket {
         node_id,
         presence: (flags & 0x01) != 0,
         fall_detected: (flags & 0x02) != 0,
         motion: (flags & 0x04) != 0,
+        radar_present: (flags & 0x08) != 0,
         breathing_rate_bpm: breathing_raw as f64 / 100.0,
         heartrate_bpm: heartrate_raw as f64 / 10000.0,
         rssi,
         n_persons,
+        radar_type,
+        radar_targets,
+        radar_dist_cm,
         motion_energy,
         presence_score,
         timestamp_ms,
@@ -1828,10 +1839,16 @@ fn adaptive_override(
             amps,
         );
         let (label, conf) = model.classify(&feat_arr);
-        classification.motion_level = label.to_string();
-        classification.presence = label != "absent";
-        // Blend model confidence with existing smoothed confidence.
-        classification.confidence = (conf * 0.7 + classification.confidence * 0.3).clamp(0.0, 1.0);
+        // Only override if model has high confidence (> 60%) AND was trained well (> 70%)
+        // Otherwise keep the raw classification which is more reliable
+        if conf > 0.60 && model.training_accuracy > 0.70 {
+            classification.motion_level = label.to_string();
+            classification.presence = label != "absent";
+            classification.confidence = (conf * 0.7 + classification.confidence * 0.3).clamp(0.0, 1.0);
+        } else {
+            // Blend confidence but keep raw classification
+            classification.confidence = (conf * 0.3 + classification.confidence * 0.7).clamp(0.0, 1.0);
+        }
     }
 }
 
@@ -4537,6 +4554,17 @@ async fn nodes_endpoint(State(state): State<SharedState>) -> Json<serde_json::Va
             let stale = elapsed_ms > 5000;
             let status = if stale { "stale" } else { "active" };
             let rssi = ns.rssi_history.back().copied().unwrap_or(-90.0);
+            // Extract radar info from edge_vitals if available
+            let (radar_type, radar_present, radar_dist_cm) = ns.edge_vitals.as_ref()
+                .map(|ev| {
+                    let rtype = match ev.radar_type {
+                        1 => "MR60BHA2",
+                        2 => "LD2410",
+                        _ => "none",
+                    };
+                    (rtype, ev.radar_present, ev.radar_dist_cm)
+                })
+                .unwrap_or(("none", false, 0));
             serde_json::json!({
                 "node_id": id,
                 "status": status,
@@ -4544,6 +4572,9 @@ async fn nodes_endpoint(State(state): State<SharedState>) -> Json<serde_json::Va
                 "rssi_dbm": rssi,
                 "motion_level": &ns.current_motion_level,
                 "person_count": ns.prev_person_count,
+                "radar_type": radar_type,
+                "radar_present": radar_present,
+                "radar_dist_cm": radar_dist_cm,
             })
         })
         .collect();

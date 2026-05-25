@@ -22,6 +22,7 @@
 #include "wasm_runtime.h"
 #include "stream_sender.h"
 #include "nvs_config.h"
+#include "mmwave_sensor.h"
 
 #include <math.h>
 #include <string.h>
@@ -562,6 +563,34 @@ static void send_vitals_packet(void)
     pkt.motion_energy = s_motion_energy;
     pkt.presence_score = s_presence_score;
     pkt.timestamp_ms = (uint32_t)(esp_timer_get_time() / 1000);
+
+    /* ADR-063: Poll mmWave radar (LD2410/MR60BHA2) and merge data. */
+    mmwave_state_t mw;
+    if (mmwave_sensor_get_state(&mw) && mw.detected) {
+        pkt.radar_type = (uint8_t)mw.type;
+        pkt.radar_targets = mw.target_count;
+        pkt.radar_dist_cm = (uint16_t)mw.distance_cm;
+        if (mw.person_present) {
+            pkt.flags |= 0x08;  /* Bit3 = radar_present */
+            /* Boost CSI presence if radar confirms. */
+            if (!s_presence_detected && mw.person_present) {
+                pkt.flags |= 0x01;  /* Force presence flag on radar confirmation */
+            }
+        }
+        /* Use radar vitals if available and better than CSI estimates. */
+        if (mw.type == MMWAVE_TYPE_MR60BHA2) {
+            if (mw.breathing_rate > 0 && mw.breathing_rate < 50) {
+                pkt.breathing_rate = (uint16_t)(mw.breathing_rate * 100.0f);
+            }
+            if (mw.heart_rate_bpm > 0 && mw.heart_rate_bpm < 200) {
+                pkt.heartrate = (uint32_t)(mw.heart_rate_bpm * 10000.0f);
+            }
+        }
+    } else {
+        pkt.radar_type = 0;
+        pkt.radar_targets = 0;
+        pkt.radar_dist_cm = 0;
+    }
 
     /* Update thread-safe copy. */
     s_latest_pkt = pkt;
