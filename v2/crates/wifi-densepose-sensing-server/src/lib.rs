@@ -22,6 +22,7 @@ pub mod path_safety;
 pub mod semantic;
 pub mod rvf_container;
 pub mod rvf_pipeline;
+pub mod sensor_fusion;
 pub mod sona;
 pub mod sparse_inference;
 #[allow(dead_code)]
