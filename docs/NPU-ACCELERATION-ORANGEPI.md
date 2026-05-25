@@ -14,6 +14,171 @@ The Orange Pi 5 Pro features the Rockchip RK3588 SoC with a **6 TOPS NPU** (Neur
 | Supported Formats | INT8, INT16, FP16 |
 | Framework | RKNN (Rockchip Neural Network) |
 
+## Service Architecture
+
+RuView on Orange Pi uses **two services**:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Orange Pi 5 Pro                         │
+│                                                             │
+│  ┌─────────────────────┐    ┌─────────────────────┐        │
+│  │  ruview-sensing     │    │  ruview-npu         │        │
+│  │  (Rust Server)      │    │  (Python Service)   │        │
+│  │                     │    │                     │        │
+│  │  Port 3022 (HTTP)   │───▶│  Port 3024 (HTTP)   │        │
+│  │  Port 3023 (WS)     │    │                     │        │
+│  │  Port 5005 (UDP)    │    │  Uses NPU cores     │        │
+│  │                     │    │  0, 1, 2            │        │
+│  └─────────────────────┘    └─────────────────────┘        │
+│           │                          │                      │
+│           │                          │                      │
+│           ▼                          ▼                      │
+│  ┌─────────────────────┐    ┌─────────────────────┐        │
+│  │  ESP32 Nodes        │    │  /dev/rknpu0        │        │
+│  │  (CSI Data)         │    │  (NPU Device)       │        │
+│  └─────────────────────┘    └─────────────────────┘        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Do You Need Both Services?
+
+| Use Case | ruview-sensing | ruview-npu | Notes |
+|----------|----------------|------------|-------|
+| Basic CSI sensing | Required | Optional | CPU-based inference works |
+| Production deployment | Required | Recommended | 10x faster inference |
+| Demo with UI | Required | Optional | UI works without NPU |
+| ML model development | Required | Required | Fast iteration with NPU |
+
+**Short answer:** For the demo, `ruview-sensing` alone is sufficient. Add `ruview-npu` for faster ML inference when you have trained RKNN models.
+
+## Complete Setup Procedure
+
+### Step 1: Install RuView Sensing Server
+
+```bash
+# On Orange Pi
+cd /root/RuView
+
+# Install the sensing service
+sudo cp scripts/ruview-sensing.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable ruview-sensing
+sudo systemctl start ruview-sensing
+
+# Verify
+systemctl status ruview-sensing
+curl http://localhost:3022/api/v1/nodes
+```
+
+### Step 2: Setup NPU (Required for NPU Service)
+
+```bash
+# Run automated setup
+sudo bash scripts/setup-npu-orangepi.sh
+
+# Or manually:
+# 1. Create device node
+sudo mknod /dev/rknpu0 c 10 126 2>/dev/null || true
+sudo chmod 666 /dev/rknpu0
+
+# 2. Create udev rule for persistence
+cat << 'EOF' | sudo tee /etc/udev/rules.d/99-rknpu.rules
+KERNEL=="rknpu", SUBSYSTEM=="misc", MODE="0666"
+SUBSYSTEM=="misc", ATTR{name}=="rknpu", MODE="0666", SYMLINK+="rknpu0"
+EOF
+sudo udevadm control --reload-rules
+
+# 3. Update runtime library to v2.3.2
+cd /tmp
+wget -q 'https://raw.githubusercontent.com/airockchip/rknn-toolkit2/master/rknpu2/runtime/Linux/librknn_api/aarch64/librknnrt.so' -O librknnrt.so
+sudo cp librknnrt.so /usr/lib/
+sudo ldconfig
+
+# 4. Install Python toolkit
+pip3 install rknn-toolkit-lite2
+
+# 5. Verify
+python3 -c "from rknnlite.api import RKNNLite; print('RKNN OK')"
+cat /sys/kernel/debug/rknpu/version
+```
+
+### Step 3: Install NPU Inference Service (Optional)
+
+```bash
+# Install service
+sudo cp scripts/ruview-npu.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable ruview-npu
+sudo systemctl start ruview-npu
+
+# Verify
+systemctl status ruview-npu
+curl http://localhost:3024/health
+```
+
+### Step 4: Verify Complete Setup
+
+```bash
+# Check both services
+systemctl status ruview-sensing ruview-npu
+
+# Check nodes
+curl -s http://localhost:3022/api/v1/nodes | python3 -m json.tool
+
+# Check NPU
+curl -s http://localhost:3024/health
+curl -s http://localhost:3024/stats
+
+# Check NPU hardware
+cat /sys/kernel/debug/rknpu/load
+cat /sys/kernel/debug/rknpu/version
+```
+
+## Verified Configuration (May 2026)
+
+| Component | Version | Status |
+|-----------|---------|--------|
+| RKNN Driver | v0.9.2 | Working |
+| librknnrt.so | v2.3.2 | Working |
+| rknn-toolkit-lite2 | v2.3.2 | Working |
+| NPU Cores | 3 cores active | Working |
+
+**Performance Results:**
+- ResNet18 inference: 3.95ms average
+- CSI inference: 4.37ms average
+- NPU temperature: 32°C (stable)
+
+## NPU Inference Service API
+
+The `ruview-npu` service provides a REST API for NPU-accelerated inference.
+
+### Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check and NPU status |
+| `/stats` | GET | Inference statistics |
+| `/infer` | POST | Run inference on CSI features |
+
+### Example Usage
+
+```bash
+# Health check
+curl http://localhost:3024/health
+# Response: {"status": "ok", "model_loaded": true, "npu_available": true}
+
+# Run inference
+curl -X POST http://localhost:3024/infer \
+  -H "Content-Type: application/json" \
+  -d '{"features": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56]}'
+# Response: {"presence": "detected", "motion": "moving", "confidence": 0.95, "latency_ms": 4.5}
+
+# Get statistics
+curl http://localhost:3024/stats
+# Response: {"inference_count": 100, "avg_latency_ms": 4.37, "min_latency_ms": 2.28, "max_latency_ms": 6.76}
+```
+
 ## Why Use NPU Acceleration?
 
 | Task | CPU (ms) | NPU (ms) | Speedup |
@@ -23,274 +188,57 @@ The Orange Pi 5 Pro features the Rockchip RK3588 SoC with a **6 TOPS NPU** (Neur
 | Pose Estimation | 200-500 | 20-50 | 10x |
 | Vital Signs Detection | 30-50 | 5-8 | 5-6x |
 
-## Quick Setup (Automated)
+## Converting Models for NPU
 
-Run the automated setup script on Orange Pi:
+### Requirements
 
-```bash
-cd /root/RuView
-sudo bash scripts/setup-npu-orangepi.sh
-```
+- **x86 machine** (Mac Intel or Linux) for model conversion
+- `rknn-toolkit2` (not available on ARM64)
+- Source model in ONNX format
 
-This script handles all NPU setup automatically. For manual setup, see below.
-
-## Manual Setup
-
-### 1. Create NPU Device Node
-
-The RK3588 NPU registers as misc device 126. Create the device node:
-
-```bash
-# Create device node
-sudo mknod /dev/rknpu0 c 10 126
-sudo chmod 666 /dev/rknpu0
-
-# Create udev rule for persistence across reboots
-cat << 'EOF' | sudo tee /etc/udev/rules.d/99-rknpu.rules
-KERNEL=="rknpu", SUBSYSTEM=="misc", MODE="0666"
-SUBSYSTEM=="misc", ATTR{name}=="rknpu", MODE="0666", SYMLINK+="rknpu0"
-EOF
-sudo udevadm control --reload-rules
-```
-
-### 2. Install RKNN Runtime
-
-```bash
-# Install RKNN Toolkit Lite (for inference on ARM64)
-pip3 install rknn-toolkit-lite2
-
-# Verify installation
-python3 -c "from rknnlite.api import RKNNLite; print('RKNN OK')"
-```
-
-### 3. Verify NPU
-
-```bash
-# Check device
-ls -la /dev/rknpu0
-
-# Check driver
-cat /sys/kernel/debug/rknpu/version
-# Expected: RKNPU driver: v0.9.2
-
-# Check NPU load
-cat /sys/kernel/debug/rknpu/load
-# Expected: NPU load: Core0: 0%, Core1: 0%, Core2: 0%
-```
-
-### 4. Configure ruview-sensing Service
-
-The service is configured with NPU as a prerequisite:
-
-```bash
-# Install service with NPU init
-sudo cp scripts/ruview-sensing.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable ruview-sensing
-sudo systemctl start ruview-sensing
-
-# Check service status
-systemctl status ruview-sensing
-```
-
-The service runs `/usr/local/bin/init-npu.sh` before starting to ensure NPU is ready.
-
-## Converting RuView Models for NPU
-
-### Model Conversion Pipeline
+### Conversion Pipeline
 
 ```
-PyTorch/ONNX Model → RKNN Converter → .rknn Model → NPU Inference
+PyTorch Model → ONNX Export → RKNN Converter (x86) → .rknn Model → Deploy to Orange Pi
 ```
 
 ### Convert ONNX to RKNN
 
-```python
-from rknn.api import RKNN
-
-rknn = RKNN()
-
-# Load ONNX model
-rknn.load_onnx(model='ruview_pose.onnx')
-
-# Configure for RK3588
-rknn.config(
-    mean_values=[[0, 0, 0]],
-    std_values=[[255, 255, 255]],
-    target_platform='rk3588',
-    quantized_dtype='asymmetric_quantized-8',  # INT8 for best performance
-    quantized_algorithm='normal'
-)
-
-# Build RKNN model
-rknn.build(do_quantization=True, dataset='calibration_data.txt')
-
-# Export
-rknn.export_rknn('ruview_pose_rk3588.rknn')
-```
-
-### Calibration Data Format
-
-```text
-# calibration_data.txt - one sample per line
-/path/to/csi_frame_001.npy
-/path/to/csi_frame_002.npy
-...
-```
-
-## Integration with RuView
-
-### Option 1: RKNN Lite (Recommended for Production)
-
-Create a Rust binding for RKNN Lite:
-
-```rust
-// src/npu/mod.rs
-use std::ffi::CString;
-use std::os::raw::c_void;
-
-#[repr(C)]
-struct RKNNContext(*mut c_void);
-
-extern "C" {
-    fn rknn_init(ctx: *mut RKNNContext, model: *const u8, size: u32, flag: u32) -> i32;
-    fn rknn_run(ctx: RKNNContext, extend: *mut c_void) -> i32;
-    fn rknn_destroy(ctx: RKNNContext) -> i32;
-}
-
-pub struct NpuInference {
-    ctx: RKNNContext,
-}
-
-impl NpuInference {
-    pub fn load(model_path: &str) -> Result<Self, String> {
-        let model_data = std::fs::read(model_path)
-            .map_err(|e| format!("Failed to load model: {}", e))?;
-
-        let mut ctx = RKNNContext(std::ptr::null_mut());
-        let ret = unsafe {
-            rknn_init(&mut ctx, model_data.as_ptr(), model_data.len() as u32, 0)
-        };
-
-        if ret != 0 {
-            return Err(format!("rknn_init failed: {}", ret));
-        }
-
-        Ok(Self { ctx })
-    }
-
-    pub fn infer(&self, input: &[f32]) -> Vec<f32> {
-        // Convert f32 to INT8 for NPU
-        // ... implementation
-        vec![]
-    }
-}
-
-impl Drop for NpuInference {
-    fn drop(&mut self) {
-        unsafe { rknn_destroy(self.ctx); }
-    }
-}
-```
-
-### Option 2: Python Bridge
-
-For faster prototyping, use Python subprocess:
-
-```rust
-use std::process::Command;
-
-pub fn npu_infer(model: &str, input_path: &str) -> Result<Vec<f32>, String> {
-    let output = Command::new("python3")
-        .args(&["/opt/ruview/npu_infer.py", model, input_path])
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    // Parse output
-    let result: Vec<f32> = String::from_utf8_lossy(&output.stdout)
-        .split(',')
-        .filter_map(|s| s.trim().parse().ok())
-        .collect();
-
-    Ok(result)
-}
-```
-
-```python
-#!/usr/bin/env python3
-# /opt/ruview/npu_infer.py
-import sys
-import numpy as np
-from rknnlite.api import RKNNLite
-
-def main():
-    model_path = sys.argv[1]
-    input_path = sys.argv[2]
-
-    rknn = RKNNLite()
-    rknn.load_rknn(model_path)
-    rknn.init_runtime(core_mask=RKNNLite.NPU_CORE_0_1_2)  # Use all 3 cores
-
-    input_data = np.load(input_path).astype(np.float32)
-    outputs = rknn.inference(inputs=[input_data])
-
-    print(','.join(map(str, outputs[0].flatten())))
-
-if __name__ == '__main__':
-    main()
-```
-
-## Pre-built NPU Models
-
-### Available Models
-
-| Model | Task | Input Shape | Accuracy | Latency |
-|-------|------|-------------|----------|---------|
-| `ruview_presence_v1.rknn` | Presence Detection | (1, 56, 20) | 95% | 3ms |
-| `ruview_pose_v1.rknn` | Pose Estimation | (1, 56, 100) | 85% | 15ms |
-| `ruview_vitals_v1.rknn` | Vital Signs | (1, 56, 50) | ±2 bpm | 8ms |
-| `ruview_count_v1.rknn` | Person Counting | (1, 56, 20) | 80% | 5ms |
-
-### Download Pre-built Models
+Run on x86 machine:
 
 ```bash
-# Create model directory
-mkdir -p /opt/ruview/models
+# Install converter (x86 only)
+pip install rknn-toolkit2
 
-# Download from release
-wget -O /opt/ruview/models/ruview_presence_v1.rknn \
-  https://github.com/ruvnet/RuView/releases/download/v0.7.0/ruview_presence_v1.rknn
+# Convert
+python scripts/convert-model-to-rknn.py \
+  --input model.onnx \
+  --output model.rknn \
+  --input-shape 1,56
+
+# Deploy to Orange Pi
+scp model.rknn root@192.168.7.205:/opt/ruview/models/
+```
+
+### Create Sample Model
+
+```bash
+# Create and convert a sample presence detection model
+python scripts/convert-model-to-rknn.py --create-sample -o presence_detector.rknn
 ```
 
 ## Performance Tuning
 
 ### Multi-Core NPU
 
-The RK3588 has 3 NPU cores. Use all for best performance:
-
 ```python
-# Use all 3 NPU cores
+from rknnlite.api import RKNNLite
+
+# Use all 3 NPU cores (best performance)
 rknn.init_runtime(core_mask=RKNNLite.NPU_CORE_0_1_2)
 
-# Or distribute across cores for parallel inference
-rknn1 = RKNNLite()
-rknn1.init_runtime(core_mask=RKNNLite.NPU_CORE_0)
-
-rknn2 = RKNNLite()
-rknn2.init_runtime(core_mask=RKNNLite.NPU_CORE_1)
-```
-
-### Memory Optimization
-
-```python
-# Pre-allocate buffers
-rknn.set_input_attr(0, {
-    'type': 'float32',
-    'layout': 'NCHW'
-})
-
-# Zero-copy input
-rknn.set_inputs([input_buffer], pass_through=True)
+# Or use specific cores
+rknn.init_runtime(core_mask=RKNNLite.NPU_CORE_0)  # Core 0 only
 ```
 
 ### Power Management
@@ -299,82 +247,111 @@ rknn.set_inputs([input_buffer], pass_through=True)
 # Check NPU frequency
 cat /sys/class/devfreq/fdab0000.npu/cur_freq
 
-# Set performance governor
+# Set performance governor (max frequency)
 echo performance | sudo tee /sys/class/devfreq/fdab0000.npu/governor
 
-# Monitor NPU utilization
-cat /sys/kernel/debug/rknpu/load
+# Monitor utilization
+watch -n 1 cat /sys/kernel/debug/rknpu/load
 ```
-
-## Benchmark Results
-
-### Test Environment
-- Orange Pi 5 Pro (16GB RAM)
-- Ubuntu 22.04 + Kernel 5.10
-- RKNN Runtime 1.6.0
-- RuView Sensing Server 0.7.0
-
-### Results (CSI Frame Processing)
-
-| Mode | Latency (ms) | Throughput (fps) | Power (W) |
-|------|--------------|------------------|-----------|
-| CPU Only | 45 | 22 | 8.5 |
-| NPU INT8 | 5 | 200 | 3.2 |
-| NPU FP16 | 8 | 125 | 4.1 |
-
-### Accuracy Comparison
-
-| Model | CPU FP32 | NPU INT8 | Degradation |
-|-------|----------|----------|-------------|
-| Presence | 96.2% | 95.1% | -1.1% |
-| Person Count | 82.5% | 80.3% | -2.2% |
-| Pose (mAP) | 0.71 | 0.68 | -0.03 |
 
 ## Troubleshooting
 
 ### NPU Not Detected
 
 ```bash
-# Check device
-ls -la /dev/rknpu*
+# Check device exists
+ls -la /dev/rknpu0
+
+# If missing, create it
+sudo mknod /dev/rknpu0 c 10 126
+sudo chmod 666 /dev/rknpu0
 
 # Check driver
 dmesg | grep rknpu
-
-# Reload driver
-sudo modprobe rknpu
+cat /sys/kernel/debug/rknpu/version
 ```
 
-### Model Conversion Fails
+### Version Mismatch Error
 
-```bash
-# Check ONNX version compatibility
-pip3 install onnx==1.12.0 onnxruntime==1.12.0
-
-# Simplify ONNX model first
-python3 -m onnxsim input.onnx output.onnx
+```
+E RKNN: Invalid RKNN format
+E RKNN: rknn_init, load model failed!
 ```
 
-### Performance Issues
+**Solution:** Update librknnrt.so to match toolkit version:
 
 ```bash
-# Check thermal throttling
-cat /sys/class/thermal/thermal_zone*/temp
+# Download matching runtime
+wget -O /tmp/librknnrt.so \
+  'https://raw.githubusercontent.com/airockchip/rknn-toolkit2/master/rknpu2/runtime/Linux/librknn_api/aarch64/librknnrt.so'
+sudo cp /tmp/librknnrt.so /usr/lib/
+sudo ldconfig
 
-# Ensure good cooling
-# NPU throttles at 85°C
+# Verify versions match
+python3 -c "from rknnlite.api import RKNNLite; RKNNLite(verbose=True).release()"
+```
+
+### Service Won't Start
+
+```bash
+# Check logs
+journalctl -u ruview-npu -n 50
+
+# Common issues:
+# 1. NPU device missing - run setup-npu-orangepi.sh
+# 2. Model file missing - check /opt/ruview/models/
+# 3. Python dependency missing - pip3 install rknn-toolkit-lite2
+```
+
+## Quick Reference
+
+### Service Management
+
+```bash
+# Start/stop sensing server
+sudo systemctl start ruview-sensing
+sudo systemctl stop ruview-sensing
+
+# Start/stop NPU service
+sudo systemctl start ruview-npu
+sudo systemctl stop ruview-npu
+
+# Check status
+systemctl status ruview-sensing ruview-npu
+
+# View logs
+journalctl -u ruview-sensing -f
+journalctl -u ruview-npu -f
+```
+
+### Health Checks
+
+```bash
+# Sensing server
+curl http://localhost:3022/api/v1/nodes
+
+# NPU service
+curl http://localhost:3024/health
+curl http://localhost:3024/stats
+
+# NPU hardware
+cat /sys/kernel/debug/rknpu/load
+cat /sys/kernel/debug/rknpu/version
 ```
 
 ## Future Work
 
-- [ ] Pre-trained RKNN models for RuView
+- [x] NPU runtime working (v2.3.2)
+- [x] NPU inference service deployed
+- [ ] Pre-trained RKNN models for RuView presence detection
+- [ ] Integrate NPU calls into main sensing server (eliminate second service)
 - [ ] Rust native RKNN bindings
-- [ ] Multi-model pipeline (presence → pose → vitals)
-- [ ] Automated model quantization in training pipeline
 - [ ] Real-time NPU monitoring in UI
 
 ## References
 
-- [RKNN Toolkit2 Documentation](https://github.com/rockchip-linux/rknn-toolkit2)
+- [RKNN Toolkit2 (Active Repo)](https://github.com/airockchip/rknn-toolkit2) - Official maintained repository
+- [RKNN Toolkit2 (Legacy)](https://github.com/rockchip-linux/rknn-toolkit2) - No longer maintained
 - [RK3588 NPU Programming Guide](https://wiki.t-firefly.com/en/ROC-RK3588S-PC/usage_npu.html)
 - [Orange Pi 5 Pro Wiki](http://www.orangepi.org/html/hardWare/computerAndMicrocontrollers/details/Orange-Pi-5-Pro.html)
+- [ezrknn-toolkit2](https://github.com/Pelochus/ezrknn-toolkit2) - Simplified installation for Orange Pi
