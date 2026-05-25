@@ -23,44 +23,77 @@ The Orange Pi 5 Pro features the Rockchip RK3588 SoC with a **6 TOPS NPU** (Neur
 | Pose Estimation | 200-500 | 20-50 | 10x |
 | Vital Signs Detection | 30-50 | 5-8 | 5-6x |
 
-## Setup RKNN Runtime
+## Quick Setup (Automated)
 
-### 1. Install RKNN Toolkit2
+Run the automated setup script on Orange Pi:
 
 ```bash
-# On Ubuntu 22.04 (Orange Pi)
-sudo apt update
-sudo apt install -y python3-pip libopencv-dev
-
-# Install RKNN Toolkit2 Lite (inference only)
-pip3 install rknn-toolkit2-lite
-
-# Or full toolkit for model conversion
-pip3 install rknn-toolkit2
+cd /root/RuView
+sudo bash scripts/setup-npu-orangepi.sh
 ```
 
-### 2. Install NPU Driver
+This script handles all NPU setup automatically. For manual setup, see below.
+
+## Manual Setup
+
+### 1. Create NPU Device Node
+
+The RK3588 NPU registers as misc device 126. Create the device node:
 
 ```bash
-# Check if NPU is available
-ls /dev/rknpu*
+# Create device node
+sudo mknod /dev/rknpu0 c 10 126
+sudo chmod 666 /dev/rknpu0
 
-# If not, install the driver
-sudo apt install -y rockchip-rknpu2
+# Create udev rule for persistence across reboots
+cat << 'EOF' | sudo tee /etc/udev/rules.d/99-rknpu.rules
+KERNEL=="rknpu", SUBSYSTEM=="misc", MODE="0666"
+SUBSYSTEM=="misc", ATTR{name}=="rknpu", MODE="0666", SYMLINK+="rknpu0"
+EOF
+sudo udevadm control --reload-rules
+```
 
-# Verify
+### 2. Install RKNN Runtime
+
+```bash
+# Install RKNN Toolkit Lite (for inference on ARM64)
+pip3 install rknn-toolkit-lite2
+
+# Verify installation
+python3 -c "from rknnlite.api import RKNNLite; print('RKNN OK')"
+```
+
+### 3. Verify NPU
+
+```bash
+# Check device
+ls -la /dev/rknpu0
+
+# Check driver
 cat /sys/kernel/debug/rknpu/version
-# Should show: RKNPU driver: v0.9.x
+# Expected: RKNPU driver: v0.9.2
+
+# Check NPU load
+cat /sys/kernel/debug/rknpu/load
+# Expected: NPU load: Core0: 0%, Core1: 0%, Core2: 0%
 ```
 
-### 3. Test NPU
+### 4. Configure ruview-sensing Service
 
-```python
-from rknnlite.api import RKNNLite
+The service is configured with NPU as a prerequisite:
 
-rknn = RKNNLite()
-print(f"NPU available: {rknn.init_runtime() == 0}")
+```bash
+# Install service with NPU init
+sudo cp scripts/ruview-sensing.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable ruview-sensing
+sudo systemctl start ruview-sensing
+
+# Check service status
+systemctl status ruview-sensing
 ```
+
+The service runs `/usr/local/bin/init-npu.sh` before starting to ensure NPU is ready.
 
 ## Converting RuView Models for NPU
 
