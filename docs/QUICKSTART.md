@@ -33,7 +33,7 @@ cargo install cross
 ## Step 1: Clone Repository
 
 ```bash
-git clone https://github.com/norimtech/RuView.git
+git clone https://github.com/prigess/RuView.git
 cd RuView
 ```
 
@@ -268,5 +268,5 @@ RuView/
 
 ## Support
 
-- Issues: https://github.com/norimtech/RuView/issues
+- Issues: https://github.com/prigess/RuView/issues
 - Documentation: See `docs/` directory
