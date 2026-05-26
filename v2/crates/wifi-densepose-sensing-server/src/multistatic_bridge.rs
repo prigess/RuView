@@ -97,7 +97,7 @@ pub fn node_frames_from_states(node_states: &HashMap<u8, NodeState>) -> Vec<Mult
 pub fn fuse_or_fallback(
     fuser: &MultistaticFuser,
     node_states: &HashMap<u8, NodeState>,
-    dedup_factor: f64,
+    _dedup_factor: f64,  // Unused after switching to max-based fallback
 ) -> (Option<FusedSensingFrame>, Option<usize>) {
     let frames = node_frames_from_states(node_states);
     if frames.is_empty() {
@@ -110,11 +110,12 @@ pub fn fuse_or_fallback(
             (Some(fused), None)
         }
         Err(e) => {
-            tracing::debug!("Multistatic fusion failed ({e}), using per-node sum/dedup fallback");
-            // Sum per-node counts then divide by dedup_factor (assumed average
-            // visibility per body across nodes).  ADR-044 §5.1.
-            // dedup_factor is runtime-configurable; default 3.0.
-            let total: usize = node_states
+            tracing::debug!("Multistatic fusion failed ({e}), using per-node max fallback");
+            // Use maximum per-node count (not sum) to avoid double-counting
+            // the same person seen by multiple overlapping nodes.
+            // This matches the docstring contract and prevents inflated counts
+            // when ESP32 nodes report n_persons based on top_k_count/2.
+            let max_count: usize = node_states
                 .values()
                 .filter(|ns| {
                     ns.last_frame_time
@@ -122,8 +123,10 @@ pub fn fuse_or_fallback(
                         .unwrap_or(false)
                 })
                 .map(|ns| ns.prev_person_count)
-                .sum();
-            let estimated = ((total as f64) / dedup_factor).ceil() as usize;
+                .max()
+                .unwrap_or(0);
+            // Cap at 3 to prevent unrealistic counts from edge miscalculation.
+            let estimated = max_count.min(3);
             (None, Some(estimated))
         }
     }

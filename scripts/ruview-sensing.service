@@ -1,0 +1,39 @@
+[Unit]
+Description=RuView WiFi Sensing Server
+Documentation=https://github.com/ruvnet/RuView
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/RuView
+
+# NPU initialization (creates /dev/rknpu0 if missing)
+ExecStartPre=/usr/local/bin/init-npu.sh
+
+# Main service - adjust paths as needed
+ExecStart=/root/RuView/v2/target/release/sensing-server \
+    --bind-addr 0.0.0.0 \
+    --source esp32 \
+    --udp-port 5005 \
+    --http-port 3022 \
+    --ws-port 3023 \
+    --tick-ms 100 \
+    --ui-path /root/RuView/ui
+
+# Restart on failure
+Restart=on-failure
+RestartSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+# Environment
+Environment=LD_LIBRARY_PATH=/usr/lib
+Environment=RUVIEW_USE_NPU=1
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target

@@ -392,6 +392,14 @@ struct PersonDetection {
     keypoints: Vec<PoseKeypoint>,
     bbox: BoundingBox,
     zone: String,
+    /// Pose type for Observatory skeleton visualization ('standing', 'walking', 'sitting', etc.)
+    pose: String,
+    /// 3D world position [x, y, z] for Observatory
+    position: [f64; 3],
+    /// Motion intensity score (0-100+) for animation
+    motion_score: f64,
+    /// Facing direction in radians for skeleton rotation
+    facing: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1118,10 +1126,14 @@ struct Esp32VitalsPacket {
     presence: bool,
     fall_detected: bool,
     motion: bool,
+    radar_present: bool,
     breathing_rate_bpm: f64,
     heartrate_bpm: f64,
     rssi: i8,
     n_persons: u8,
+    radar_type: u8,      // 0=none, 1=MR60BHA2, 2=LD2410
+    radar_targets: u8,
+    radar_dist_cm: u16,
     motion_energy: f32,
     presence_score: f32,
     timestamp_ms: u32,
@@ -1143,19 +1155,26 @@ fn parse_esp32_vitals(buf: &[u8]) -> Option<Esp32VitalsPacket> {
     let heartrate_raw = u32::from_le_bytes([buf[8], buf[9], buf[10], buf[11]]);
     let rssi = buf[12] as i8;
     let n_persons = buf[13];
+    let radar_type = buf[14];
+    let radar_targets = buf[15];
     let motion_energy = f32::from_le_bytes([buf[16], buf[17], buf[18], buf[19]]);
     let presence_score = f32::from_le_bytes([buf[20], buf[21], buf[22], buf[23]]);
     let timestamp_ms = u32::from_le_bytes([buf[24], buf[25], buf[26], buf[27]]);
+    let radar_dist_cm = u16::from_le_bytes([buf[28], buf[29]]);
 
     Some(Esp32VitalsPacket {
         node_id,
         presence: (flags & 0x01) != 0,
         fall_detected: (flags & 0x02) != 0,
         motion: (flags & 0x04) != 0,
+        radar_present: (flags & 0x08) != 0,
         breathing_rate_bpm: breathing_raw as f64 / 100.0,
         heartrate_bpm: heartrate_raw as f64 / 10000.0,
         rssi,
         n_persons,
+        radar_type,
+        radar_targets,
+        radar_dist_cm,
         motion_energy,
         presence_score,
         timestamp_ms,
@@ -1941,9 +1960,9 @@ fn raw_classify(score: f64) -> String {
 }
 
 /// Debounce frames required before state transition (at ~10 FPS = ~0.4s).
-const DEBOUNCE_FRAMES: u32 = 4;
+const DEBOUNCE_FRAMES: u32 = 2;  // Faster state transitions
 /// EMA alpha for motion smoothing (~1s time constant at 10 FPS).
-const MOTION_EMA_ALPHA: f64 = 0.15;
+const MOTION_EMA_ALPHA: f64 = 0.25;  // More responsive to motion changes
 /// EMA alpha for slow-adapting baseline (~30s time constant at 10 FPS).
 const BASELINE_EMA_ALPHA: f64 = 0.003;
 /// Number of warm-up frames before baseline subtraction kicks in.
@@ -2064,10 +2083,16 @@ fn adaptive_override(
             amps,
         );
         let (label, conf) = model.classify(&feat_arr);
-        classification.motion_level = label.to_string();
-        classification.presence = label != "absent";
-        // Blend model confidence with existing smoothed confidence.
-        classification.confidence = (conf * 0.7 + classification.confidence * 0.3).clamp(0.0, 1.0);
+        // Only override if model has high confidence (> 60%) AND was trained well (> 70%)
+        // Otherwise keep the raw classification which is more reliable
+        if conf > 0.60 && model.training_accuracy > 0.70 {
+            classification.motion_level = label.to_string();
+            classification.presence = label != "absent";
+            classification.confidence = (conf * 0.7 + classification.confidence * 0.3).clamp(0.0, 1.0);
+        } else {
+            // Blend confidence but keep raw classification
+            classification.confidence = (conf * 0.3 + classification.confidence * 0.7).clamp(0.0, 1.0);
+        }
     }
 }
 
@@ -2892,6 +2917,10 @@ async fn handle_ws_pose_client(mut socket: WebSocket, state: SharedState) {
                                             bbox: BoundingBox { x: 260.0, y: 150.0, width: 120.0, height: 220.0 },
                                             keypoints,
                                             zone: "zone_1".into(),
+                                            pose: "standing".to_string(),
+                                            position: [0.0, 0.0, 0.0],
+                                            motion_score: sensing.features.motion_band_power.min(100.0),
+                                            facing: 0.0,
                                         }]
                                     }).unwrap_or_else(|| {
                                         // Prefer tracked persons from broadcast if available
@@ -3659,6 +3688,37 @@ fn derive_single_person_pose(
     let max_x = xs.iter().cloned().fold(f64::MIN, f64::max) + 10.0;
     let max_y = ys.iter().cloned().fold(f64::MIN, f64::max) + 10.0;
 
+    // Derive pose type from motion level and posture
+    let pose_type = if let Some(ref posture) = update.posture {
+        match posture.as_str() {
+            "lying" | "fallen" => "lying",
+            "sitting" => "sitting",
+            _ if is_walking => "walking",
+            _ => "standing",
+        }
+    } else if is_walking {
+        "walking"
+    } else {
+        "standing"
+    };
+
+    // Convert 2D pixel position to 3D world coordinates for Observatory
+    // Observatory uses: X = left/right, Y = up (always 0 for ground), Z = forward/back
+    // Map pixel X (0-640) to world X (-5 to 5), pixel Y to world Z
+    let world_x = (base_x - 320.0) / 64.0; // Center at 0, scale to ~±5 meters
+    let world_z = (base_y - 240.0) / 48.0; // Map Y to Z depth
+
+    // Per-person spatial offset in world coordinates
+    let half_w = (total_persons as f64 - 1.0) / 2.0;
+    let person_world_x = world_x + (person_idx as f64 - half_w) * 1.5; // 1.5m spacing
+
+    // Facing direction based on motion (walking direction)
+    let facing = if is_walking {
+        stride_x.signum() * 0.3 // Face movement direction
+    } else {
+        0.0
+    };
+
     PersonDetection {
         id: (person_idx + 1) as u32,
         confidence: cls.confidence * conf_decay,
@@ -3670,6 +3730,10 @@ fn derive_single_person_pose(
             height: (max_y - min_y).max(160.0),
         },
         zone: format!("zone_{}", person_idx + 1),
+        pose: pose_type.to_string(),
+        position: [person_world_x, 0.0, world_z],
+        motion_score: motion_score * 100.0, // Scale to 0-100 range
+        facing,
     }
 }
 
@@ -4892,6 +4956,17 @@ async fn nodes_endpoint(State(state): State<SharedState>) -> Json<serde_json::Va
             let stale = elapsed_ms > 5000;
             let status = if stale { "stale" } else { "active" };
             let rssi = ns.rssi_history.back().copied().unwrap_or(-90.0);
+            // Extract radar info from edge_vitals if available
+            let (radar_type, radar_present, radar_dist_cm) = ns.edge_vitals.as_ref()
+                .map(|ev| {
+                    let rtype = match ev.radar_type {
+                        1 => "MR60BHA2",
+                        2 => "LD2410",
+                        _ => "none",
+                    };
+                    (rtype, ev.radar_present, ev.radar_dist_cm)
+                })
+                .unwrap_or(("none", false, 0));
             serde_json::json!({
                 "node_id": id,
                 "status": status,
@@ -4899,6 +4974,9 @@ async fn nodes_endpoint(State(state): State<SharedState>) -> Json<serde_json::Va
                 "rssi_dbm": rssi,
                 "motion_level": &ns.current_motion_level,
                 "person_count": ns.prev_person_count,
+                "radar_type": radar_type,
+                "radar_present": radar_present,
+                "radar_dist_cm": radar_dist_cm,
             })
         })
         .collect();
@@ -4989,8 +5067,11 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                     }
 
                     // Store per-node person count from edge vitals.
+                    // Cap at 2 per node to prevent ESP32 firmware from inflating
+                    // the count (firmware calculates n_persons = top_k_count/2
+                    // which can be 4 regardless of actual presence).
                     let node_est = if vitals.presence {
-                        (vitals.n_persons as usize).max(1)
+                        (vitals.n_persons as usize).clamp(1, 2)
                     } else {
                         0
                     };
@@ -5488,7 +5569,7 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                                 let count =
                                     aggregate_person_count(s.person_count(), &s.node_states);
                                 s.prev_person_count = count;
-                                count.max(1)
+                                count
                             }
                             None => {
                                 aggregate_person_count(fallback_count.unwrap_or(0), &s.node_states)

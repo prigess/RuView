@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RuView Multi-Node Deployment Guide</title>
+  <style>
+    :root {
+      --steel: #4682B4;
+      --steel-dark: #2E5A8A;
+      --steel-light: #6BA3D8;
+      --steel-pale: #B0C4DE;
+      --steel-bg: #E6EEF5;
+      --steel-white: #F5F8FA;
+      --text: #1a2a3a;
+      --text-muted: #4a5a6a;
+      --success: #28a745;
+      --warning: #ffc107;
+      --danger: #dc3545;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      line-height: 1.6;
+      color: var(--text);
+      background: var(--steel-bg);
+      margin: 0;
+      padding: 0;
+    }
+    .container { max-width: 960px; margin: 0 auto; padding: 0 1.5rem 3rem; }
+    header {
+      background: linear-gradient(135deg, var(--steel-dark) 0%, var(--steel) 100%);
+      color: white;
+      padding: 2rem 1.5rem 3rem;
+      margin-bottom: 2rem;
+    }
+    header h1 { margin: 0 0 0.25rem; font-size: 1.75rem; font-weight: 600; }
+    header p { margin: 0; opacity: 0.9; font-size: 0.95rem; }
+    nav {
+      background: white;
+      border-bottom: 2px solid var(--steel-pale);
+      padding: 0.75rem 1.5rem;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      box-shadow: 0 1px 3px rgba(46,90,138,0.08);
+    }
+    nav a {
+      color: var(--steel-dark);
+      text-decoration: none;
+      margin-right: 1.25rem;
+      font-weight: 500;
+      font-size: 0.9rem;
+    }
+    nav a:hover { color: var(--steel); text-decoration: underline; }
+    section {
+      background: white;
+      border-radius: 8px;
+      padding: 1.75rem 2rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      border: 1px solid var(--steel-pale);
+    }
+    section h2 {
+      color: var(--steel-dark);
+      margin: 0 0 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid var(--steel-pale);
+      font-size: 1.35rem;
+    }
+    section h3 { color: var(--steel); font-size: 1.1rem; margin: 1.25rem 0 0.5rem; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      margin: 0.75rem 0;
+    }
+    th, td { padding: 0.5rem 0.75rem; text-align: left; border: 1px solid var(--steel-pale); }
+    th { background: var(--steel-pale); color: var(--steel-dark); font-weight: 600; }
+    tr:nth-child(even) { background: var(--steel-white); }
+    code, pre {
+      background: var(--steel-bg);
+      color: var(--steel-dark);
+      padding: 0.2em 0.4em;
+      border-radius: 4px;
+      font-size: 0.88em;
+    }
+    pre { padding: 1rem; overflow-x: auto; white-space: pre-wrap; }
+    pre code { padding: 0; background: none; }
+    ul, ol { margin: 0.5rem 0 1rem 1.25rem; }
+    .version-badge { display: inline-block; background: var(--steel); color: white; padding: 0.2em 0.6em; border-radius: 4px; font-size: 0.85rem; }
+    .success-badge { background: var(--success); }
+    .warning-badge { background: var(--warning); color: var(--text); }
+    footer { text-align: center; padding: 1.5rem; color: var(--text-muted); font-size: 0.85rem; }
+    .step-number {
+      display: inline-block;
+      width: 28px;
+      height: 28px;
+      background: var(--steel);
+      color: white;
+      border-radius: 50%;
+      text-align: center;
+      line-height: 28px;
+      font-weight: bold;
+      margin-right: 0.5rem;
+    }
+    .diagram {
+      background: var(--steel-white);
+      border: 1px solid var(--steel-pale);
+      border-radius: 6px;
+      padding: 1.5rem;
+      font-family: monospace;
+      white-space: pre;
+      overflow-x: auto;
+      line-height: 1.4;
+    }
+    .alert {
+      padding: 1rem;
+      border-radius: 6px;
+      margin: 1rem 0;
+    }
+    .alert-info { background: #e7f3ff; border-left: 4px solid var(--steel); }
+    .alert-success { background: #d4edda; border-left: 4px solid var(--success); }
+    .alert-warning { background: #fff3cd; border-left: 4px solid var(--warning); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1>RuView Multi-Node Deployment Guide</h1>
+      <p>WiFi CSI Sensing with ESP32-S3 on Orange Pi 5 Pro <span class="version-badge">v0.7.0</span></p>
+    </div>
+  </header>
+
+  <nav>
+    <div class="container">
+      <a href="#quick-start">Quick Start</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#prerequisites">Prerequisites</a>
+      <a href="#automated-setup">Automated Setup</a>
+      <a href="#manual-setup">Manual Setup</a>
+      <a href="#verification">Verification</a>
+      <a href="#troubleshooting">Troubleshooting</a>
+      <a href="#api-reference">API Reference</a>
+    </div>
+  </nav>
+
+  <main class="container">
+    <section id="quick-start">
+      <h2>Quick Start (30 Minutes)</h2>
+      <p>Get your multi-node WiFi sensing system running in 30 minutes using the automated setup script.</p>
+
+      <div class="alert alert-info">
+        <strong>Requirements:</strong> 3x ESP32-S3 devices, Orange Pi 5 Pro (or Linux host), WiFi network
+      </div>
+
+      <h3><span class="step-number">1</span> Clone Repository</h3>
+      <pre><code>git clone https://github.com/KarthikV17/RuView.git
+cd RuView
+git checkout fix/sensing-improvements</code></pre>
+
+      <h3><span class="step-number">2</span> Run Automated Setup</h3>
+      <pre><code>./scripts/setup-multi-node.sh</code></pre>
+      <p>The interactive script will guide you through:</p>
+      <ul>
+        <li>Building the sensing server</li>
+        <li>Building ESP32-S3 firmware</li>
+        <li>Flashing each device</li>
+        <li>Provisioning WiFi credentials</li>
+        <li>Starting the server</li>
+      </ul>
+
+      <h3><span class="step-number">3</span> Open the UI</h3>
+      <pre><code>http://&lt;HOST_IP&gt;:8080</code></pre>
+      <p>You should see all 3 nodes appearing in the dashboard with real-time CSI data.</p>
+    </section>
+
+    <section id="architecture">
+      <h2>System Architecture</h2>
+
+      <h3>Network Topology</h3>
+      <div class="diagram">
+                        ┌─────────────────────┐
+                        │   Sensing Server    │
+                        │   (Orange Pi 5 Pro) │
+                        │                     │
+                        │  UDP :5005 (CSI)    │
+                        │  HTTP :8080 (UI)    │
+                        │  WS :8765 (Stream)  │
+                        └──────────┬──────────┘
+                                   │
+              ┌────────────────────┼────────────────────┐
+              │                    │                    │
+              ▼                    ▼                    ▼
+        ┌───────────┐        ┌───────────┐        ┌───────────┐
+        │ ESP32-S3  │        │ ESP32-S3  │        │ ESP32-S3  │
+        │  Node 1   │        │  Node 2   │        │  Node 3   │
+        │           │        │           │        │           │
+        │ CSI + UDP │        │ CSI + UDP │        │ CSI + UDP │
+        └───────────┘        └───────────┘        └───────────┘
+      </div>
+
+      <h3>Data Flow</h3>
+      <table>
+        <tr>
+          <th>Component</th>
+          <th>Protocol</th>
+          <th>Role</th>
+        </tr>
+        <tr>
+          <td>WiFi Router/AP</td>
+          <td>802.11</td>
+          <td>Transmits WiFi frames; body affects channel state</td>
+        </tr>
+        <tr>
+          <td>ESP32-S3 Nodes</td>
+          <td>802.11 (rx), UDP (tx)</td>
+          <td>Capture CSI, send ADR-018 frames to server</td>
+        </tr>
+        <tr>
+          <td>Sensing Server</td>
+          <td>UDP :5005, HTTP :8080, WS :8765</td>
+          <td>Process CSI, run ML pipeline, serve UI/API</td>
+        </tr>
+        <tr>
+          <td>Browser/Client</td>
+          <td>HTTP, WebSocket</td>
+          <td>Display real-time sensing results</td>
+        </tr>
+      </table>
+
+      <h3>Detection Thresholds (v0.7.0)</h3>
+      <table>
+        <tr>
+          <th>Classification</th>
+          <th>Score Threshold</th>
+          <th>Description</th>
+        </tr>
+        <tr>
+          <td><span class="version-badge success-badge">Active</span></td>
+          <td>&gt; 0.20</td>
+          <td>Significant movement detected</td>
+        </tr>
+        <tr>
+          <td><span class="version-badge">Present (Moving)</span></td>
+          <td>&gt; 0.08</td>
+          <td>Light movement or walking</td>
+        </tr>
+        <tr>
+          <td><span class="version-badge warning-badge">Present (Still)</span></td>
+          <td>&gt; 0.025</td>
+          <td>Stationary person detected</td>
+        </tr>
+        <tr>
+          <td>Absent</td>
+          <td>&le; 0.025</td>
+          <td>No presence detected</td>
+        </tr>
+      </table>
+    </section>
+
+    <section id="prerequisites">
+      <h2>Prerequisites</h2>
+
+      <h3>Hardware</h3>
+      <table>
+        <tr>
+          <th>Item</th>
+          <th>Specification</th>
+          <th>Notes</th>
+        </tr>
+        <tr>
+          <td>ESP32-S3</td>
+          <td>8MB flash (recommended), 4MB supported</td>
+          <td>3+ devices for multi-node deployment</td>
+        </tr>
+        <tr>
+          <td>Host Machine</td>
+          <td>Orange Pi 5 Pro / Linux / macOS</td>
+          <td>Runs sensing server</td>
+        </tr>
+        <tr>
+          <td>USB Cables</td>
+          <td>USB-A to USB-C (or appropriate)</td>
+          <td>For flashing firmware</td>
+        </tr>
+        <tr>
+          <td>WiFi Network</td>
+          <td>2.4 GHz preferred</td>
+          <td>All nodes must be on same network as server</td>
+        </tr>
+      </table>
+
+      <h3>Software</h3>
+      <ul>
+        <li><strong>Rust toolchain</strong> - For building sensing server</li>
+        <li><strong>Docker</strong> (recommended) or <strong>ESP-IDF v5.4</strong> - For building firmware</li>
+        <li><strong>Python 3.8+</strong> - For provisioning script</li>
+        <li><strong>esptool</strong> - <code>pip install esptool</code></li>
+        <li><strong>pyserial</strong> - <code>pip install pyserial</code></li>
+      </ul>
+
+      <h3>Install Prerequisites (Orange Pi / Ubuntu)</h3>
+      <pre><code># Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
+
+# Install Python dependencies
+sudo apt install -y python3-pip python3-serial
+pip3 install esptool
+
+# Install Docker (optional, for firmware build)
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER</code></pre>
+    </section>
+
+    <section id="automated-setup">
+      <h2>Automated Setup</h2>
+
+      <h3>Setup Script</h3>
+      <p>The <code>setup-multi-node.sh</code> script provides an interactive menu for all setup tasks:</p>
+      <pre><code>./scripts/setup-multi-node.sh</code></pre>
+
+      <h3>Menu Options</h3>
+      <table>
+        <tr>
+          <th>Option</th>
+          <th>Description</th>
+        </tr>
+        <tr>
+          <td>1) Full setup</td>
+          <td>Complete end-to-end setup (build, flash, provision, start)</td>
+        </tr>
+        <tr>
+          <td>2) Build firmware only</td>
+          <td>Build ESP32-S3 firmware using Docker or native ESP-IDF</td>
+        </tr>
+        <tr>
+          <td>3) Flash nodes only</td>
+          <td>Flash firmware to connected ESP32-S3 devices</td>
+        </tr>
+        <tr>
+          <td>4) Provision nodes only</td>
+          <td>Configure WiFi credentials on flashed devices</td>
+        </tr>
+        <tr>
+          <td>5) Start sensing server</td>
+          <td>Start the server with ESP32 source</td>
+        </tr>
+        <tr>
+          <td>6) Identify devices</td>
+          <td>Monitor serial output to identify physical devices</td>
+        </tr>
+      </table>
+
+      <h3>Individual Scripts</h3>
+      <table>
+        <tr>
+          <th>Script</th>
+          <th>Usage</th>
+        </tr>
+        <tr>
+          <td><code>build-firmware.sh</code></td>
+          <td><code>./scripts/build-firmware.sh [8MB|4MB]</code></td>
+        </tr>
+        <tr>
+          <td><code>flash-node.sh</code></td>
+          <td><code>./scripts/flash-node.sh /dev/ttyUSB0</code></td>
+        </tr>
+        <tr>
+          <td><code>provision-node.sh</code></td>
+          <td><code>./scripts/provision-node.sh /dev/ttyUSB0 "SSID" "password" 192.168.1.100</code></td>
+        </tr>
+        <tr>
+          <td><code>start-server.sh</code></td>
+          <td><code>./scripts/start-server.sh [--background]</code></td>
+        </tr>
+        <tr>
+          <td><code>identify-esp32-nodes.sh</code></td>
+          <td><code>./scripts/identify-esp32-nodes.sh</code></td>
+        </tr>
+      </table>
+    </section>
+
+    <section id="manual-setup">
+      <h2>Manual Setup (Step-by-Step)</h2>
+
+      <h3><span class="step-number">1</span> Clone and Build Server</h3>
+      <pre><code>git clone https://github.com/KarthikV17/RuView.git
+cd RuView
+git checkout fix/sensing-improvements
+
+# Build sensing server
+cd v2
+cargo build --release -p wifi-densepose-sensing-server</code></pre>
+
+      <h3><span class="step-number">2</span> Build ESP32-S3 Firmware</h3>
+      <pre><code>cd firmware/esp32-csi-node
+
+# Using Docker (recommended)
+docker run --rm -v "$(pwd)":/project -w /project \
+  espressif/idf:v5.4 idf.py build
+
+# OR using native ESP-IDF
+source /path/to/esp-idf/export.sh
+idf.py build</code></pre>
+
+      <h3><span class="step-number">3</span> Identify ESP32 Ports</h3>
+      <pre><code># Linux
+ls /dev/ttyUSB* /dev/ttyACM*
+
+# macOS
+ls /dev/cu.usbserial* /dev/cu.SLAB*
+
+# Windows (Git Bash)
+ls /dev/ttyS* | grep -v ttyS0</code></pre>
+
+      <h3><span class="step-number">4</span> Flash Each Device</h3>
+      <pre><code># Flash device 1
+esptool.py --chip esp32s3 -p /dev/ttyUSB0 -b 460800 \
+  --before default_reset --after hard_reset \
+  write_flash --flash_mode dio --flash_size 8MB \
+  0x0 build/bootloader/bootloader.bin \
+  0x8000 build/partition_table/partition-table.bin \
+  0x10000 build/esp32-csi-node.bin
+
+# Repeat for /dev/ttyUSB1, /dev/ttyUSB2, etc.</code></pre>
+
+      <h3><span class="step-number">5</span> Provision WiFi</h3>
+      <pre><code># Get your server's IP address
+hostname -I  # Linux
+ipconfig getifaddr en0  # macOS
+
+# Provision each node
+python firmware/esp32-csi-node/provision.py \
+  --port /dev/ttyUSB0 \
+  --ssid "YourWiFi" \
+  --password "YourPassword" \
+  --target-ip 192.168.1.100:5005
+
+# Repeat for each device</code></pre>
+
+      <h3><span class="step-number">6</span> Start Server</h3>
+      <pre><code>cd v2
+cargo run --release -p wifi-densepose-sensing-server -- \
+  --bind-addr 0.0.0.0 \
+  --source esp32 \
+  --http-port 8080 \
+  --udp-port 5005</code></pre>
+
+      <h3><span class="step-number">7</span> Access UI</h3>
+      <p>Open in browser: <code>http://&lt;SERVER_IP&gt;:8080</code></p>
+    </section>
+
+    <section id="verification">
+      <h2>Verification</h2>
+
+      <h3>Check Connected Nodes</h3>
+      <pre><code>curl -s http://localhost:8080/api/v1/nodes | python3 -m json.tool</code></pre>
+      <p>Expected output:</p>
+      <pre><code>{
+  "nodes": [
+    {"node_id": 1, "rssi": -45, "last_seen_ms": 100},
+    {"node_id": 2, "rssi": -52, "last_seen_ms": 150},
+    {"node_id": 3, "rssi": -48, "last_seen_ms": 120}
+  ]
+}</code></pre>
+
+      <h3>Check Server Status</h3>
+      <pre><code>curl -s http://localhost:8080/api/v1/status</code></pre>
+
+      <h3>Monitor Real-Time Stream</h3>
+      <pre><code># Install websocat if needed: cargo install websocat
+websocat ws://localhost:8765/ws/sensing</code></pre>
+
+      <h3>Monitor ESP32 Serial Output</h3>
+      <pre><code>python -m serial.tools.miniterm /dev/ttyUSB0 115200</code></pre>
+      <p>Expected output shows CSI frames being sent:</p>
+      <pre><code>[CSI] Frame 12345: rssi=-45 subs=56 -> 192.168.1.100:5005
+[CSI] Frame 12346: rssi=-46 subs=56 -> 192.168.1.100:5005</code></pre>
+    </section>
+
+    <section id="troubleshooting">
+      <h2>Troubleshooting</h2>
+
+      <h3>Node Not Appearing in Dashboard</h3>
+      <table>
+        <tr>
+          <th>Symptom</th>
+          <th>Cause</th>
+          <th>Solution</th>
+        </tr>
+        <tr>
+          <td>Node not in list</td>
+          <td>Wrong target IP</td>
+          <td>Re-provision with correct server IP</td>
+        </tr>
+        <tr>
+          <td>Node not in list</td>
+          <td>Firewall blocking UDP 5005</td>
+          <td><code>sudo ufw allow 5005/udp</code></td>
+        </tr>
+        <tr>
+          <td>Node not in list</td>
+          <td>WiFi not connected</td>
+          <td>Check serial output for WiFi errors</td>
+        </tr>
+        <tr>
+          <td>Node offline</td>
+          <td>No data for 5+ seconds</td>
+          <td>Check node is powered and in range</td>
+        </tr>
+      </table>
+
+      <h3>Poor Detection Accuracy</h3>
+      <ul>
+        <li>Position nodes 2-5 meters apart for best coverage</li>
+        <li>Avoid placing nodes behind metal objects</li>
+        <li>Run field calibration: <code>curl -X POST http://localhost:8080/api/v1/calibrate</code></li>
+        <li>Ensure room is empty during calibration (3 minutes)</li>
+      </ul>
+
+      <h3>Build Errors</h3>
+      <table>
+        <tr>
+          <th>Error</th>
+          <th>Solution</th>
+        </tr>
+        <tr>
+          <td>Docker not found</td>
+          <td>Install Docker or use native ESP-IDF</td>
+        </tr>
+        <tr>
+          <td>Rust compilation error</td>
+          <td><code>rustup update</code> to latest stable</td>
+        </tr>
+        <tr>
+          <td>esptool not found</td>
+          <td><code>pip install esptool</code></td>
+        </tr>
+        <tr>
+          <td>Permission denied on serial</td>
+          <td><code>sudo usermod -aG dialout $USER</code> (relogin)</td>
+        </tr>
+      </table>
+
+      <h3>Common Serial Port Names</h3>
+      <table>
+        <tr>
+          <th>OS</th>
+          <th>Port Pattern</th>
+        </tr>
+        <tr>
+          <td>Linux</td>
+          <td><code>/dev/ttyUSB0</code>, <code>/dev/ttyACM0</code></td>
+        </tr>
+        <tr>
+          <td>macOS</td>
+          <td><code>/dev/cu.usbserial-*</code>, <code>/dev/cu.SLAB_*</code></td>
+        </tr>
+        <tr>
+          <td>Windows</td>
+          <td><code>COM3</code>, <code>COM4</code>, etc.</td>
+        </tr>
+      </table>
+    </section>
+
+    <section id="api-reference">
+      <h2>API Reference</h2>
+
+      <h3>REST Endpoints</h3>
+      <table>
+        <tr>
+          <th>Endpoint</th>
+          <th>Method</th>
+          <th>Description</th>
+        </tr>
+        <tr>
+          <td><code>/api/v1/status</code></td>
+          <td>GET</td>
+          <td>Server status and configuration</td>
+        </tr>
+        <tr>
+          <td><code>/api/v1/nodes</code></td>
+          <td>GET</td>
+          <td>List connected ESP32 nodes</td>
+        </tr>
+        <tr>
+          <td><code>/api/v1/sensing/latest</code></td>
+          <td>GET</td>
+          <td>Latest sensing data (motion, presence, vitals)</td>
+        </tr>
+        <tr>
+          <td><code>/api/v1/calibrate</code></td>
+          <td>POST</td>
+          <td>Start field calibration (empty room)</td>
+        </tr>
+        <tr>
+          <td><code>/api/v1/config</code></td>
+          <td>GET/POST</td>
+          <td>Get or update runtime configuration</td>
+        </tr>
+        <tr>
+          <td><code>/api/v1/recording/start</code></td>
+          <td>POST</td>
+          <td>Start recording CSI data</td>
+        </tr>
+        <tr>
+          <td><code>/api/v1/recording/stop</code></td>
+          <td>POST</td>
+          <td>Stop recording and save dataset</td>
+        </tr>
+        <tr>
+          <td><code>/health</code></td>
+          <td>GET</td>
+          <td>Health check for monitoring</td>
+        </tr>
+      </table>
+
+      <h3>WebSocket</h3>
+      <p>Connect to <code>ws://&lt;HOST&gt;:8765/ws/sensing</code> for real-time updates.</p>
+      <pre><code>// Example message
+{
+  "type": "sensing",
+  "timestamp": 1716652800.123,
+  "source": "esp32",
+  "nodes": [...],
+  "classification": {
+    "motion_level": "present_moving",
+    "presence": true,
+    "confidence": 0.85
+  },
+  "vital_signs": {
+    "breathing_rate": 14.5,
+    "heart_rate": 72.0,
+    "confidence": 0.7
+  }
+}</code></pre>
+    </section>
+
+    <section id="support">
+      <h2>Support & Resources</h2>
+      <ul>
+        <li><strong>Documentation:</strong> <a href="https://github.com/ruvnet/RuView/tree/main/docs">docs/</a></li>
+        <li><strong>Issues:</strong> <a href="https://github.com/ruvnet/RuView/issues">GitHub Issues</a></li>
+        <li><strong>Multi-Node Guide:</strong> <a href="MULTI-NODE-SETUP.md">MULTI-NODE-SETUP.md</a></li>
+        <li><strong>API Reference:</strong> <a href="API-REFERENCE.md">API-REFERENCE.md</a></li>
+      </ul>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>RuView WiFi-DensePose Sensing | MIT License | Updated May 2025</p>
+    </div>
+  </footer>
+</body>
+</html>

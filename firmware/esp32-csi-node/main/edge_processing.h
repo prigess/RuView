@@ -95,16 +95,18 @@ typedef struct {
 typedef struct __attribute__((packed)) {
     uint32_t magic;          /**< EDGE_VITALS_MAGIC = 0xC5110002. */
     uint8_t  node_id;        /**< ESP32 node identifier. */
-    uint8_t  flags;          /**< Bit0=presence, Bit1=fall, Bit2=motion. */
+    uint8_t  flags;          /**< Bit0=presence, Bit1=fall, Bit2=motion, Bit3=radar_present. */
     uint16_t breathing_rate; /**< BPM * 100 (fixed-point). */
     uint32_t heartrate;      /**< BPM * 10000 (fixed-point). */
     int8_t   rssi;           /**< Latest RSSI. */
     uint8_t  n_persons;      /**< Number of detected persons (multi-person). */
-    uint8_t  reserved[2];
+    uint8_t  radar_type;     /**< 0=none, 1=MR60BHA2, 2=LD2410. */
+    uint8_t  radar_targets;  /**< Number of radar targets detected. */
     float    motion_energy;  /**< Phase variance / motion metric. */
     float    presence_score; /**< Presence detection score. */
     uint32_t timestamp_ms;   /**< Milliseconds since boot. */
-    uint32_t reserved2;      /**< Reserved for future use. */
+    uint16_t radar_dist_cm;  /**< Radar distance to nearest target (cm). */
+    uint16_t reserved2;      /**< Reserved for future use. */
 } edge_vitals_pkt_t;
 
 _Static_assert(sizeof(edge_vitals_pkt_t) == 32, "vitals packet must be 32 bytes");
