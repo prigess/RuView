@@ -1,0 +1,44 @@
+{
+  "_comment": "ESP32 CSI node IP mapping for multi-node dome setup",
+  "_usage": "Copy to esp32-node-ip-map.json and edit IPs/positions for your setup",
+  "nodes": [
+    {
+      "id": 1,
+      "ip": "192.168.7.101",
+      "name": "west",
+      "position": [0.0, 1.5, 1.5],
+      "enabled": true
+    },
+    {
+      "id": 2,
+      "ip": "192.168.7.102",
+      "name": "north",
+      "position": [1.5, 3.0, 1.5],
+      "enabled": true
+    },
+    {
+      "id": 3,
+      "ip": "192.168.7.103",
+      "name": "east",
+      "position": [3.0, 1.5, 1.5],
+      "enabled": true
+    },
+    {
+      "id": 4,
+      "ip": "192.168.7.104",
+      "name": "south",
+      "position": [1.5, 0.0, 1.5],
+      "enabled": true
+    }
+  ],
+  "room_dimensions": {
+    "width": 3.0,
+    "depth": 3.0,
+    "height": 2.5,
+    "unit": "meters"
+  },
+  "calibration": {
+    "baseline_samples": 600,
+    "recalibrate_interval_secs": 3600
+  }
+}

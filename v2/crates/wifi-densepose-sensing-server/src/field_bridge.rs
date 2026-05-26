@@ -17,9 +17,11 @@ use super::score_to_person_count;
 const OCCUPANCY_WINDOW: usize = 50;
 
 /// Perturbation energy threshold for detecting a second person.
-const ENERGY_THRESH_2: f64 = 12.0;
+/// Lowered for more sensitive detection (was 12.0)
+const ENERGY_THRESH_2: f64 = 8.0;
 /// Perturbation energy threshold for detecting a third person.
-const ENERGY_THRESH_3: f64 = 25.0;
+/// Lowered for more sensitive detection (was 25.0)
+const ENERGY_THRESH_3: f64 = 18.0;
 
 /// Create a FieldModelConfig for single-link mode (one ESP32 node = one link).
 /// This avoids the DimensionMismatch error when feeding single-frame observations.

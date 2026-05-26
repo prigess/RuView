@@ -1,0 +1,30 @@
+[Unit]
+Description=RuView NPU Inference Service
+Documentation=https://github.com/ruvnet/RuView
+After=network-online.target ruview-sensing.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/RuView
+
+# NPU initialization
+ExecStartPre=/usr/local/bin/init-npu.sh
+
+# NPU inference service on port 3024
+ExecStart=/usr/bin/python3 /root/RuView/scripts/npu-inference-service.py --port 3024 --model /opt/ruview/models/presence_detector.rknn
+
+# Restart on failure
+Restart=on-failure
+RestartSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+# Environment
+Environment=LD_LIBRARY_PATH=/usr/lib
+
+[Install]
+WantedBy=multi-user.target
