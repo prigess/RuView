@@ -4665,8 +4665,11 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                     }
 
                     // Store per-node person count from edge vitals.
+                    // Cap at 2 per node to prevent ESP32 firmware from inflating
+                    // the count (firmware calculates n_persons = top_k_count/2
+                    // which can be 4 regardless of actual presence).
                     let node_est = if vitals.presence {
-                        (vitals.n_persons as usize).max(1)
+                        (vitals.n_persons as usize).clamp(1, 2)
                     } else {
                         0
                     };
