@@ -1,6 +1,6 @@
 [Unit]
 Description=RuView NPU Inference Service
-Documentation=https://github.com/ruvnet/RuView
+Documentation=https://github.com/prigess/RuView
 After=network-online.target ruview-sensing.service
 Wants=network-online.target
 

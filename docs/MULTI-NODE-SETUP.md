@@ -28,7 +28,7 @@ This guide covers setting up a multi-node WiFi sensing deployment with 3+ ESP32-
 ### Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/KarthikV17/RuView.git
+git clone https://github.com/prigess/RuView.git
 cd RuView
 git checkout fix/sensing-improvements
 ```

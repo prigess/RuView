@@ -11,9 +11,9 @@ WINDOWS_HOST="${WINDOWS_HOST:-}"  # Set via env: export WINDOWS_HOST=<tailscale-
 # Step 1: Clone or update repo
 echo "[1/7] Setting up repository..."
 if [ -d "$REPO_DIR/.git" ]; then
-  cd "$REPO_DIR" && git pull origin main
+  cd "$REPO_DIR" && git pull origin local-modification
 else
-  git clone https://github.com/ruvnet/RuView.git "$REPO_DIR"
+  git clone --branch local-modification https://github.com/prigess/RuView.git "$REPO_DIR"
   cd "$REPO_DIR"
 fi
 

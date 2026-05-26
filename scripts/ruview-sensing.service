@@ -1,6 +1,6 @@
 [Unit]
 Description=RuView WiFi Sensing Server
-Documentation=https://github.com/ruvnet/RuView
+Documentation=https://github.com/prigess/RuView
 After=network-online.target
 Wants=network-online.target
 
