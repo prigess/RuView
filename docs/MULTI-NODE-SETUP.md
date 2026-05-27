@@ -30,7 +30,7 @@ This guide covers setting up a multi-node WiFi sensing deployment with 3+ ESP32-
 ```bash
 git clone https://github.com/prigess/RuView.git
 cd RuView
-git checkout fix/sensing-improvements
+git checkout local-modification
 ```
 
 ### Step 2: Build the Sensing Server
@@ -174,7 +174,7 @@ tail -f /tmp/sensing-server.log
 
 ### Frame Parsing Errors
 
-If you see type mismatch errors, ensure you're using the `fix/sensing-improvements` branch which has the corrected frame parser.
+If you see type mismatch errors, ensure you're using the `local-modification` branch which has the corrected frame parser.
 
 ## Network Architecture
 
