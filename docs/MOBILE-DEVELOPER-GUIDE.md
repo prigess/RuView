@@ -4,6 +4,8 @@ Build a mobile app on top of the RuView sensing server running on an Orange Pi w
 
 **Prerequisites:** The device is on your local network at a known IP. See `API-REFERENCE.md` for the full endpoint catalog.
 
+> **Reference implementation available.** A fully working native iOS app lives in `mobile/ios/` — open `RuView.xcodeproj` in Xcode, set your device target, and build. The Android app is in `mobile/android/`. Both apps implement every section of this guide and can serve as a starting point or working reference.
+
 ---
 
 ## Table of Contents
@@ -11,6 +13,7 @@ Build a mobile app on top of the RuView sensing server running on an Orange Pi w
 1. [Architecture Overview](#1-architecture-overview)
 2. [Quickstart — First Data in 5 Minutes](#2-quickstart--first-data-in-5-minutes)
 3. [WebSocket Integration](#3-websocket-integration)
+   - [iOS Design System](#33-ios-design-system)
 4. [Use Case Recipes](#4-use-case-recipes)
    - [Room Occupancy Screen](#41-room-occupancy-screen)
    - [Vital Signs Monitor](#42-vital-signs-monitor)
@@ -159,20 +162,24 @@ class RuViewClient: NSObject, URLSessionWebSocketDelegate {
 ```swift
 struct SensingSnapshot: Decodable {
     let source: String           // "esp32" or "simulate"
+    let type: String             // message type identifier
     let tick: Int
     let timestamp: Double
     let estimatedPersons: Int
     let classification: Classification
-    let vitalSigns: VitalSigns?
+    let vitalSigns: VitalSigns
     let persons: [Person]
     let nodeFeatures: [NodeFeature]
+    let nodes: [NodeInfo]
+    let signalField: SignalField?
 
     enum CodingKeys: String, CodingKey {
-        case source, tick, timestamp, persons
+        case source, type, tick, timestamp, persons, nodes
         case estimatedPersons = "estimated_persons"
         case classification
         case vitalSigns = "vital_signs"
         case nodeFeatures = "node_features"
+        case signalField = "signal_field"
     }
 }
 
@@ -203,17 +210,19 @@ struct VitalSigns: Decodable {
     }
 }
 
-struct Person: Decodable {
+struct Person: Decodable, Identifiable {
     let id: Int
     let pose: String        // "standing" | "sitting" | "lying" | "unknown"
     let confidence: Double
+    let facing: Double      // orientation angle in degrees
     let motionScore: Double
     let zone: String
+    let position: [Double]  // [x, y, z] in room coordinates
     let bbox: BoundingBox
     let keypoints: [Keypoint]
 
     enum CodingKeys: String, CodingKey {
-        case id, pose, confidence, zone, bbox, keypoints
+        case id, pose, confidence, facing, zone, position, bbox, keypoints
         case motionScore = "motion_score"
     }
 }
@@ -233,18 +242,47 @@ struct BoundingBox: Decodable {
     let height: Double
 }
 
-struct NodeFeature: Decodable {
+struct NodeFeature: Decodable, Identifiable {
     let nodeId: Int
     let rssiDbm: Double
     let lastSeenMs: Int
     let stale: Bool
     let classification: Classification
 
+    var id: Int { nodeId }
+
     enum CodingKeys: String, CodingKey {
         case stale, classification
         case nodeId = "node_id"
         case rssiDbm = "rssi_dbm"
         case lastSeenMs = "last_seen_ms"
+    }
+}
+
+struct NodeInfo: Decodable, Identifiable {
+    let nodeId: Int
+    let rssiDbm: Double
+    let subcarrierCount: Int
+    let position: [Double]
+    let amplitude: [Double]
+
+    var id: Int { nodeId }
+
+    enum CodingKeys: String, CodingKey {
+        case nodeId = "node_id"
+        case rssiDbm = "rssi_dbm"
+        case subcarrierCount = "subcarrier_count"
+        case position, amplitude
+    }
+}
+
+struct SignalField: Decodable {
+    let gridSize: [Int]
+    let values: [Double]
+
+    enum CodingKeys: String, CodingKey {
+        case gridSize = "grid_size"
+        case values
     }
 }
 ```
@@ -370,6 +408,65 @@ data class NodeFeature(
 ```
 
 > **Dependency:** Add `com.squareup.okhttp3:okhttp:4.12.0` and `org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3` to `build.gradle`.
+
+---
+
+## 3.3 iOS Design System
+
+The native iOS app (`mobile/ios/`) ships with a steel blue healthcare design system defined in `DesignSystem.swift`. Use these tokens when building on top of the reference implementation.
+
+### Color tokens
+
+```swift
+extension Color {
+    static let steel      = Color(red: 0.275, green: 0.510, blue: 0.706) // #4682B4 — primary brand
+    static let steelDark  = Color(red: 0.173, green: 0.318, blue: 0.510) // #2C5282 — headings, active
+    static let steelLight = Color(red: 0.741, green: 0.835, blue: 0.918) // #BDD5EA — borders, dividers
+    static let steelPale  = Color(red: 0.937, green: 0.957, blue: 0.980) // #EFF4FA — page background
+    static let heartRed   = Color(red: 0.878, green: 0.353, blue: 0.353) // heart rate accent
+    static let lungTeal   = Color(red: 0.169, green: 0.651, blue: 0.651) // breathing rate accent
+    static let healthText = Color(red: 0.102, green: 0.180, blue: 0.290) // primary text
+    static let healthSub  = Color(red: 0.420, green: 0.498, blue: 0.639) // secondary / captions
+}
+```
+
+### Card modifier
+
+```swift
+// Apply to any view to get a white rounded card with steel shadow
+Text("Hello").ruCard()
+Text("Hello").ruCard(padding: 12)  // custom padding
+```
+
+### Gradients
+
+```swift
+// Steel blue gradient (top-left → bottom-right) — use for prominent buttons/icons
+SteelGradient.main
+
+// Steel blue gradient (left → right) — use for action buttons
+SteelGradient.horizontal
+```
+
+### Usage pattern
+
+```swift
+// Page background
+.background(Color.steelPale.ignoresSafeArea())
+
+// Primary action button
+Button("Connect") { ... }
+    .foregroundColor(.white)
+    .background(SteelGradient.horizontal)
+    .cornerRadius(14)
+
+// Card section
+VStack { ... }.ruCard()
+
+// Stat / metric value
+Text("72").foregroundColor(.healthText).fontWeight(.semibold)
+Text("bpm").foregroundColor(.healthSub)
+```
 
 ---
 
@@ -729,7 +826,7 @@ struct Node: Decodable {
 **Goal:** Display a floor plan with per-zone person counts.
 
 **Endpoints used:**
-- `GET /api/v1/pose/zones/summary` — poll every 1–2 seconds (zone data doesn't change at 10 Hz)
+- `GET /api/v1/pose/zones/summary` — poll every 2 seconds (zone data doesn't change at 10 Hz)
 
 ```swift
 struct ZoneStatus: Decodable {
@@ -762,7 +859,7 @@ func fetchZones(host: String) async throws -> [String: ZoneStatus] {
 └─────────────┴─────────────┘
 ```
 
-Color the zone by `person_count`: 0 = gray, 1 = blue, 2+ = orange.
+Color the zone by `person_count`: 0 = `steelPale` (empty), 1 = `steel.opacity(0.22)` (occupied), 2+ = `steel.opacity(0.52)` (busy). See the iOS Design System section for exact color values.
 
 ---
 
@@ -958,12 +1055,12 @@ data class CalibrationStatus(
 
 ### 5.2 Step 2 — Record Training Data
 
-After calibration, record a short session for each occupancy class. The server uses recordings named with a `train_<label>` prefix.
+After calibration, record a short session for each occupancy class. The server's adaptive trainer looks for recordings whose filename starts with `train_` — the recording `id` in the POST body becomes the filename.
 
 **Required labels:**
 
-| Recording name prefix | Scenario to act out | Duration |
-|----------------------|---------------------|----------|
+| Recording `id` | Scenario to act out | Duration |
+|----------------|---------------------|----------|
 | `train_absent` | Leave the room completely empty | 60 seconds |
 | `train_present_still` | Stand/sit still in the room | 60 seconds |
 | `train_present_moving` | Walk around normally | 60 seconds |
@@ -972,10 +1069,12 @@ After calibration, record a short session for each occupancy class. The server u
 **API flow for one label:**
 
 ```
-POST /api/v1/recording/start  body: {"name": "train_absent"}
+POST /api/v1/recording/start  body: {"id": "train_absent"}
   ... perform the scenario for 60 seconds ...
 POST /api/v1/recording/stop
 ```
+
+> **Important:** Use the `id` key (not `name`) in the request body. The server uses the value as the recording filename (`train_absent.jsonl`). Recordings without the `train_` prefix are ignored by the adaptive trainer.
 
 **Swift — record one label:**
 
@@ -986,7 +1085,7 @@ func recordLabel(_ label: String, durationSeconds: Int) async throws -> String {
     var startReq = URLRequest(url: startURL)
     startReq.httpMethod = "POST"
     startReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    startReq.httpBody = try JSONEncoder().encode(["name": "train_\(label)"])
+    startReq.httpBody = try JSONEncoder().encode(["id": "train_\(label)"])
     let (startData, _) = try await URLSession.shared.data(for: startReq)
     let startRes = try JSONDecoder().decode(RecordingStartResponse.self, from: startData)
 
@@ -1020,7 +1119,7 @@ suspend fun recordLabel(host: String, label: String, durationMs: Long): String {
     val json = Json { ignoreUnknownKeys = true }
 
     // Start
-    val startBody = """{"name":"train_$label"}""".toRequestBody("application/json".toMediaType())
+    val startBody = """{"id":"train_$label"}""".toRequestBody("application/json".toMediaType())
     val startRes = http.newCall(
         Request.Builder().url("http://$host:3022/api/v1/recording/start").post(startBody).build()
     ).execute()

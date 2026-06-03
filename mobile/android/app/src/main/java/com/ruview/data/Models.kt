@@ -144,7 +144,9 @@ data class StopCalibrationResponse(
 
 @Serializable
 data class StartRecordingRequest(
-    val name: String
+    // Server expects `id` (which becomes the recording filename) — sending
+    // `name` was silently ignored and the file got an auto-generated timestamp.
+    val id: String
 )
 
 @Serializable

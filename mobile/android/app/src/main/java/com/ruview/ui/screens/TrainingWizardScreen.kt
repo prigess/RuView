@@ -600,7 +600,8 @@ private fun RecordingStep(
                 Button(
                     onClick = {
                         isRecording = true
-                        viewModel.startRecording(label.key)
+                        // Adaptive trainer only picks up files prefixed with `train_`.
+                        viewModel.startRecording("train_${label.key}")
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {

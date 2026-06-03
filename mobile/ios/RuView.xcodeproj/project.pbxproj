@@ -19,6 +19,8 @@
 		A110 /* NodeHealthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A010 /* NodeHealthView.swift */; };
 		A111 /* ZoneMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A011 /* ZoneMapView.swift */; };
 		A112 /* TrainingWizardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A012 /* TrainingWizardView.swift */; };
+		A113 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A015 /* DesignSystem.swift */; };
+		A114 /* AboutSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A016 /* AboutSheetView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -36,7 +38,19 @@
 		A012 /* TrainingWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainingWizardView.swift; sourceTree = "<group>"; };
 		A013 /* RuView.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RuView.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A015 /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
+		A016 /* AboutSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutSheetView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A061 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		A020 /* Products */ = {
@@ -51,6 +65,7 @@
 			isa = PBXGroup;
 			children = (
 				A001 /* RuViewApp.swift */,
+				A015 /* DesignSystem.swift */,
 				A014 /* Info.plist */,
 				A030 /* Models */,
 				A031 /* Networking */,
@@ -95,11 +110,12 @@
 				A010 /* NodeHealthView.swift */,
 				A011 /* ZoneMapView.swift */,
 				A012 /* TrainingWizardView.swift */,
+				A016 /* AboutSheetView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
 		};
-		A040 /* MainGroup */ = {
+		A040 = {
 			isa = PBXGroup;
 			children = (
 				A021 /* RuView */,
@@ -135,7 +151,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1500;
-				LastUpgradeCheck = 1500;
+				LastUpgradeCheck = 2630;
 				TargetAttributes = {
 					A050 = {
 						CreatedOnToolsVersion = 15.0;
@@ -160,6 +176,16 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		A062 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		A060 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -177,30 +203,12 @@
 				A110 /* NodeHealthView.swift in Sources */,
 				A111 /* ZoneMapView.swift in Sources */,
 				A112 /* TrainingWizardView.swift in Sources */,
+				A113 /* DesignSystem.swift in Sources */,
+				A114 /* AboutSheetView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXFrameworksBuildPhase section */
-		A061 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXFrameworksBuildPhase section */
-
-/* Begin PBXResourcesBuildPhase section */
-		A062 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXResourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
 		A090 /* Debug */ = {
@@ -227,6 +235,7 @@
 				CLANG_WARN_INT_CONVERSION = YES;
 				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
 				CLANG_WARN_OBJC_IMPLICIT_RETAIN_CYCLE = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
 				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
@@ -260,6 +269,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -289,6 +299,7 @@
 				CLANG_WARN_INT_CONVERSION = YES;
 				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
 				CLANG_WARN_OBJC_IMPLICIT_RETAIN_CYCLE = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
 				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
@@ -314,6 +325,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -383,7 +395,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
 	};
 	rootObject = A080 /* Project object */;
 }

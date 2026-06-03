@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import UIKit
 
 // MARK: - SensingViewModel
 
@@ -15,6 +16,13 @@ final class SensingViewModel: ObservableObject {
     @Published var connectionError: String?
     @Published var isSignalLost: Bool = false
 
+    /// Debounced "show the disconnected banner" — true only after the connection has
+    /// been down for at least `disconnectGracePeriod` seconds. Brief reconnects don't
+    /// flash the banner.
+    @Published var showDisconnectedBanner: Bool = false
+    private let disconnectGracePeriod: TimeInterval = 3.5
+    private var disconnectGraceTask: Task<Void, Never>?
+
     // MARK: - REST-fetched state
     @Published var nodes: [NodeStatus] = []
     @Published var zones: [ZoneInfo] = []
@@ -29,6 +37,54 @@ final class SensingViewModel: ObservableObject {
     // MARK: - First connect timestamp for "Measuring..." state
     private var connectedAt: Date?
 
+    // MARK: - Live data history for sparklines (sampled at ~1 Hz)
+    @Published var heartRateHistory: [Double] = []
+    @Published var breathingHistory: [Double] = []
+    @Published var personCountHistory: [Double] = []
+    @Published var nodeRssiHistory: [Int: [Double]] = [:]
+
+    /// `true` when ticks have advanced within the last 1.5s — used for the "Live" pulse indicator.
+    @Published var isLiveDataFlowing: Bool = false
+    private var lastTickValue: Int = 0
+    private var lastTickChangeAt: Date = .distantPast
+
+    // EMA smoothing state — heavy smoothing so numbers don't flicker
+    private var emaHeartRate: Double?
+    private var emaBreathing: Double?
+    private let emaAlpha: Double = 0.08
+    private var lastHistorySample = Date.distantPast
+    private let historyLength: Int = 60
+
+    // Display-value hysteresis — only commit a rounded change when the EMA has
+    // moved past the integer boundary by `hysteresisMargin` units. Prevents the
+    // typical 56↔57↔56 flicker when the true value sits near a boundary.
+    @Published var displayHeartRate: Int?
+    @Published var displayBreathingRate: Int?
+    @Published var displayPersonCount: Int = 0
+    private let hysteresisMargin: Double = 0.6
+
+    // Person count needs N consecutive identical readings before changing,
+    // so transient mis-detections don't flip the displayed number.
+    private var pendingPersonCount: Int = -1
+    private var pendingPersonCountStreak: Int = 0
+    private let personCountStabilityFrames: Int = 4
+
+    // MARK: - Known-good value fallback
+    //
+    // When the live reading is unreliable (low confidence or out of physiologic
+    // range), we hold the last "good" value instead of showing "–" or noise.
+    @Published var lastGoodHeartRate: Int?
+    @Published var lastGoodBreathingRate: Int?
+    private var lastGoodHeartRateAt: Date?
+    private var lastGoodBreathingRateAt: Date?
+
+    /// Resting-adult physiologic plausibility ranges. Anything outside is
+    /// treated as a sensor failure even if the model reports it confidently.
+    private let heartRatePlausibleRange: ClosedRange<Int> = 40...180
+    private let breathingRatePlausibleRange: ClosedRange<Int> = 6...35
+    private let goodSampleConfidence: Double = 0.55
+    private let heldValueMaxAge: TimeInterval = 300   // 5 minutes
+
     // MARK: - Polling tasks
     private var nodesPollTask: Task<Void, Never>?
     private var zonesPollTask: Task<Void, Never>?
@@ -36,19 +92,28 @@ final class SensingViewModel: ObservableObject {
 
     // MARK: - Init
 
-    init(client: RuViewClient = RuViewClient()) {
-        self.client = client
+    init() {
+        self.client = RuViewClient()
         bindClientPublishers()
     }
 
     // MARK: - Binding via Combine sinks
 
     private func bindClientPublishers() {
-        // Mirror all published properties from client → self
-        // Both are @MainActor so this is safe
+        // Throttle WebSocket 10 Hz down to ~1.4 Hz — slow enough that big numbers
+        // settle visually instead of twitching every tick.
         client.$snapshot
-            .receive(on: RunLoop.main)
-            .assign(to: &$snapshot)
+            .throttle(for: .milliseconds(700), scheduler: RunLoop.main, latest: true)
+            .sink { [weak self] snap in
+                guard let self else { return }
+                self.snapshot = snap
+                self.updateLiveDataFlag(snap)
+                if let v = snap?.vitalSigns { self.updateVitalHistory(v) }
+                self.updateStablePersonCount(snap?.estimatedPersons)
+                self.commitDisplayVitals(confidence: snap?.vitalSigns)
+                self.sampleHistories(snap)
+            }
+            .store(in: &cancellables)
 
         client.$isConnected
             .receive(on: RunLoop.main)
@@ -58,7 +123,9 @@ final class SensingViewModel: ObservableObject {
                 self.isConnected = connected
                 if connected && !wasConnected {
                     self.connectedAt = Date()
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
                 }
+                self.handleConnectionChange(connected: connected)
             }
             .store(in: &cancellables)
 
@@ -71,6 +138,24 @@ final class SensingViewModel: ObservableObject {
             .assign(to: &$isSignalLost)
     }
 
+    // MARK: - Connection grace period
+
+    /// Debounce banner visibility so transient drops (<3.5s) don't flash UI noise.
+    private func handleConnectionChange(connected: Bool) {
+        disconnectGraceTask?.cancel()
+        if connected {
+            showDisconnectedBanner = false
+        } else {
+            disconnectGraceTask = Task { [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(nanoseconds: UInt64(disconnectGracePeriod * 1_000_000_000))
+                if !Task.isCancelled && !self.isConnected {
+                    self.showDisconnectedBanner = true
+                }
+            }
+        }
+    }
+
     // MARK: - Connect / Disconnect
 
     func connect(host: String) {
@@ -79,6 +164,8 @@ final class SensingViewModel: ObservableObject {
     }
 
     func disconnect() {
+        disconnectGraceTask?.cancel()
+        showDisconnectedBanner = false
         client.disconnect()
         stopPolling()
         nodes = []
@@ -173,7 +260,8 @@ final class SensingViewModel: ObservableObject {
     // MARK: - Derived computed properties
 
     var personCount: Int {
-        snapshot?.estimatedPersons ?? 0
+        // Use hysteresis-stabilized count so the big number doesn't flicker.
+        displayPersonCount
     }
 
     var motionLevel: String {
@@ -190,11 +278,11 @@ final class SensingViewModel: ObservableObject {
 
     var motionColor: Color {
         switch motionLevel {
-        case "absent":          return .gray
-        case "present_still":  return .blue
-        case "present_moving": return .orange
-        case "active":         return .red
-        default:               return .gray
+        case "absent":          return .healthSub
+        case "present_still":   return .steel
+        case "present_moving":  return .orange
+        case "active":          return .red
+        default:                return .healthSub
         }
     }
 
@@ -218,21 +306,241 @@ final class SensingViewModel: ObservableObject {
         return Date().timeIntervalSince(connectedAt) < 30
     }
 
+    /// State for a vital sign display, returned by helpers below.
+    enum VitalDisplay {
+        case live(value: Int)              // confidence ≥ 0.6, in physiologic range
+        case approximate(value: Int)       // confidence 0.3–0.6, in physiologic range
+        case held(value: Int, age: TimeInterval) // failure — showing last good value
+        case unavailable                   // failure and no known good value
+
+        var text: String {
+            switch self {
+            case .live(let v):        return "\(v)"
+            case .approximate(let v): return "~\(v)"
+            case .held(let v, _):     return "\(v)"
+            case .unavailable:        return "–"
+            }
+        }
+        var isHeld: Bool {
+            if case .held = self { return true } else { return false }
+        }
+        var heldAge: TimeInterval? {
+            if case .held(_, let age) = self { return age } else { return nil }
+        }
+    }
+
+    /// Direction-of-change indicator for a vital, compared to ~30s ago.
+    enum VitalTrend {
+        case rising(delta: Int)
+        case falling(delta: Int)
+        case steady
+
+        var icon: String {
+            switch self {
+            case .rising:  return "arrow.up.right"
+            case .falling: return "arrow.down.right"
+            case .steady:  return "arrow.right"
+            }
+        }
+
+        var description: String {
+            switch self {
+            case .rising(let d):  return "+\(d) vs 30s ago"
+            case .falling(let d): return "−\(d) vs 30s ago"
+            case .steady:         return "Steady"
+            }
+        }
+
+        var isMeaningful: Bool {
+            switch self {
+            case .steady: return false
+            default:      return true
+            }
+        }
+    }
+
+    func heartRateTrend() -> VitalTrend {
+        computeTrend(history: heartRateHistory)
+    }
+
+    func breathingTrend() -> VitalTrend {
+        computeTrend(history: breathingHistory)
+    }
+
+    /// Compare the latest sample with the value ~30 samples back (≈30 s at 1 Hz).
+    /// Returns `.steady` if the difference is < 2 units or history is too short.
+    private func computeTrend(history: [Double]) -> VitalTrend {
+        guard history.count >= 8 else { return .steady }
+        let lookback = min(30, history.count - 1)
+        let current = history.last!
+        let past = history[history.count - 1 - lookback]
+        let delta = current - past
+        let absDelta = Int(abs(delta).rounded())
+        if absDelta < 2 { return .steady }
+        return delta > 0 ? .rising(delta: absDelta) : .falling(delta: absDelta)
+    }
+
+    func heartRateDisplay(vitals: VitalSigns) -> VitalDisplay {
+        vitalDisplay(
+            current: displayHeartRate,
+            confidence: vitals.heartbeatConfidence,
+            plausible: heartRatePlausibleRange,
+            heldValue: lastGoodHeartRate,
+            heldAt: lastGoodHeartRateAt
+        )
+    }
+
+    func breathingDisplay(vitals: VitalSigns) -> VitalDisplay {
+        vitalDisplay(
+            current: displayBreathingRate,
+            confidence: vitals.breathingConfidence,
+            plausible: breathingRatePlausibleRange,
+            heldValue: lastGoodBreathingRate,
+            heldAt: lastGoodBreathingRateAt
+        )
+    }
+
+    private func vitalDisplay(
+        current: Int?,
+        confidence: Double,
+        plausible: ClosedRange<Int>,
+        heldValue: Int?,
+        heldAt: Date?
+    ) -> VitalDisplay {
+        let currentInRange = current.map { plausible.contains($0) } ?? false
+
+        if confidence >= 0.6, let v = current, currentInRange {
+            return .live(value: v)
+        }
+        if confidence >= 0.3, let v = current, currentInRange {
+            return .approximate(value: v)
+        }
+        // Failure path — never show "—" if we have any value to fall back to.
+        // 1) Prefer the last high-confidence in-range value.
+        if let held = heldValue, let at = heldAt {
+            let age = Date().timeIntervalSince(at)
+            if age <= heldValueMaxAge {
+                return .held(value: held, age: age)
+            }
+        }
+        // 2) Otherwise hold the most recent stabilized display value.
+        if let v = current, plausible.contains(v) {
+            return .held(value: v, age: 0)
+        }
+        // 3) Only show "unavailable" before the very first valid sample.
+        return .unavailable
+    }
+
+    // Kept for callers that just need a string (e.g., older code paths).
     func formattedHeartRate(vitals: VitalSigns) -> String {
-        formattedVital(value: vitals.heartRateBpm, confidence: vitals.heartbeatConfidence)
+        heartRateDisplay(vitals: vitals).text
     }
-
     func formattedBreathing(vitals: VitalSigns) -> String {
-        formattedVital(value: vitals.breathingRateBpm, confidence: vitals.breathingConfidence)
+        breathingDisplay(vitals: vitals).text
     }
 
-    private func formattedVital(value: Double, confidence: Double) -> String {
-        if confidence < 0.3 {
-            return "–"
-        } else if confidence < 0.6 {
-            return "~\(String(format: "%.0f", value))"
+    /// Apply hysteresis: only update the visible integer when the EMA has moved
+    /// past the previous boundary by `hysteresisMargin`. Stops boundary flicker.
+    private func commitDisplayVitals(confidence vitals: VitalSigns?) {
+        if let target = emaHeartRate {
+            displayHeartRate = applyHysteresis(current: displayHeartRate, target: target)
+        }
+        if let target = emaBreathing {
+            displayBreathingRate = applyHysteresis(current: displayBreathingRate, target: target)
+        }
+        if let vitals { updateLastGoodVitals(vitals) }
+    }
+
+    /// Promote the current display value to "last known good" when confidence is
+    /// high AND the value is in the physiologic range.
+    private func updateLastGoodVitals(_ vitals: VitalSigns) {
+        let now = Date()
+        if vitals.heartbeatConfidence >= goodSampleConfidence,
+           let hr = displayHeartRate,
+           heartRatePlausibleRange.contains(hr) {
+            lastGoodHeartRate = hr
+            lastGoodHeartRateAt = now
+        }
+        if vitals.breathingConfidence >= goodSampleConfidence,
+           let br = displayBreathingRate,
+           breathingRatePlausibleRange.contains(br) {
+            lastGoodBreathingRate = br
+            lastGoodBreathingRateAt = now
+        }
+    }
+
+    private func applyHysteresis(current: Int?, target: Double) -> Int {
+        guard let current else { return Int(target.rounded()) }
+        let diff = target - Double(current)
+        if abs(diff) >= hysteresisMargin {
+            return Int(target.rounded())
+        }
+        return current
+    }
+
+    private func updateStablePersonCount(_ incoming: Int?) {
+        guard let value = incoming else { return }
+        if value == pendingPersonCount {
+            pendingPersonCountStreak += 1
         } else {
-            return String(format: "%.0f", value)
+            pendingPersonCount = value
+            pendingPersonCountStreak = 1
+        }
+        // Commit only after N consecutive identical readings.
+        if pendingPersonCountStreak >= personCountStabilityFrames,
+           value != displayPersonCount {
+            displayPersonCount = value
+        }
+    }
+
+    private func updateVitalHistory(_ vitals: VitalSigns) {
+        let a = emaAlpha
+        // Gate EMA updates on minimum confidence — prevents garbage samples
+        // from polluting the smoothed value during failures so the held value
+        // we eventually show is the real last-good reading, not noise drift.
+        if vitals.heartbeatConfidence >= 0.3 {
+            emaHeartRate = emaHeartRate.map { a * vitals.heartRateBpm + (1 - a) * $0 } ?? vitals.heartRateBpm
+        }
+        if vitals.breathingConfidence >= 0.3 {
+            emaBreathing = emaBreathing.map { a * vitals.breathingRateBpm + (1 - a) * $0 } ?? vitals.breathingRateBpm
+        }
+    }
+
+    private func sampleHistories(_ snapshot: SensingSnapshot?) {
+        let now = Date()
+        guard now.timeIntervalSince(lastHistorySample) >= 1.0 else { return }
+        lastHistorySample = now
+
+        if let hr = emaHeartRate {
+            heartRateHistory.append(hr)
+            if heartRateHistory.count > historyLength { heartRateHistory.removeFirst() }
+        }
+        if let br = emaBreathing {
+            breathingHistory.append(br)
+            if breathingHistory.count > historyLength { breathingHistory.removeFirst() }
+        }
+        if let count = snapshot?.estimatedPersons {
+            personCountHistory.append(Double(count))
+            if personCountHistory.count > historyLength { personCountHistory.removeFirst() }
+        }
+        if let features = snapshot?.nodeFeatures {
+            for nf in features {
+                var arr = nodeRssiHistory[nf.nodeId] ?? []
+                arr.append(nf.rssiDbm)
+                if arr.count > historyLength { arr.removeFirst() }
+                nodeRssiHistory[nf.nodeId] = arr
+            }
+        }
+    }
+
+    private func updateLiveDataFlag(_ snapshot: SensingSnapshot?) {
+        let now = Date()
+        if let tick = snapshot?.tick, tick != lastTickValue {
+            lastTickValue = tick
+            lastTickChangeAt = now
+            if !isLiveDataFlowing { isLiveDataFlowing = true }
+        } else if now.timeIntervalSince(lastTickChangeAt) > 1.5 && isLiveDataFlowing {
+            isLiveDataFlowing = false
         }
     }
 
@@ -254,9 +562,9 @@ final class SensingViewModel: ObservableObject {
 
     func zoneColor(personCount: Int) -> Color {
         switch personCount {
-        case 0: return Color(.systemGray5)
-        case 1: return .blue.opacity(0.3)
-        default: return .orange.opacity(0.4)
+        case 0:     return Color.steelPale
+        case 1:     return Color.steel.opacity(0.22)
+        default:    return Color.steel.opacity(0.52)
         }
     }
 

@@ -7,7 +7,6 @@ struct DeviceSetupView: View {
     @State private var inputHost: String = ""
     @State private var isChecking: Bool = false
     @State private var errorMessage: String?
-    @State private var showSuccess: Bool = false
     @Environment(\.colorScheme) private var colorScheme
 
     let onConnected: (String) -> Void
@@ -15,7 +14,7 @@ struct DeviceSetupView: View {
     var body: some View {
         NavigationView {
             ScrollView {
-                VStack(spacing: 32) {
+                VStack(spacing: 28) {
                     headerSection
                     inputSection
                     connectButton
@@ -26,6 +25,7 @@ struct DeviceSetupView: View {
                 }
                 .padding(24)
             }
+            .background(Color.steelPale.ignoresSafeArea())
             .navigationTitle("Connect to RuView")
             .navigationBarTitleDisplayMode(.large)
         }
@@ -34,37 +34,38 @@ struct DeviceSetupView: View {
         }
     }
 
-    // MARK: - Subviews
+    // MARK: - Header
 
     private var headerSection: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "antenna.radiowaves.left.and.right")
-                .font(.system(size: 64))
-                .foregroundColor(.blue)
+        VStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(SteelGradient.main)
+                    .frame(width: 90, height: 90)
+                    .shadow(color: Color.steel.opacity(0.35), radius: 12, x: 0, y: 6)
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .font(.system(size: 38))
+                    .foregroundColor(.white)
+            }
 
             Text("RuView Sensing")
-                .font(.title2)
-                .fontWeight(.semibold)
+                .font(.title2).fontWeight(.bold).foregroundColor(.healthText)
 
             Text("Enter the IP address of your Orange Pi sensing server to start monitoring WiFi-based pose estimation.")
-                .font(.callout)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
+                .font(.callout).foregroundColor(.healthSub).multilineTextAlignment(.center)
         }
         .padding(.top, 8)
     }
 
+    // MARK: - Input
+
     private var inputSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Server Address")
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .foregroundColor(.secondary)
+                .font(.subheadline).fontWeight(.semibold).foregroundColor(.healthSub)
 
             HStack {
-                Image(systemName: "network")
-                    .foregroundColor(.secondary)
-                    .frame(width: 20)
+                Image(systemName: "network").foregroundColor(.steel).frame(width: 20)
 
                 TextField("192.168.1.100", text: $inputHost)
                     .textFieldStyle(.plain)
@@ -73,32 +74,32 @@ struct DeviceSetupView: View {
                     .textInputAutocapitalization(.never)
                     .submitLabel(.go)
                     .onSubmit { attemptConnect() }
+                    .foregroundColor(.healthText)
 
                 if !inputHost.isEmpty {
                     Button {
                         inputHost = ""
                         errorMessage = nil
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
+                        Image(systemName: "xmark.circle.fill").foregroundColor(.healthSub)
                     }
                 }
             }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color(.secondarySystemBackground))
-            )
+            .padding(14)
+            .background(Color.surface)
+            .cornerRadius(12)
+            .shadow(color: Color.steel.opacity(0.10), radius: 6, x: 0, y: 2)
             .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(errorMessage != nil ? Color.red.opacity(0.5) : Color.clear, lineWidth: 1)
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(errorMessage != nil ? Color.red.opacity(0.45) : Color.steelLight.opacity(0.50), lineWidth: 1.5)
             )
 
             Text("Ports 3022 (REST) and 3023 (WebSocket) will be used")
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(.caption).foregroundColor(.healthSub)
         }
     }
+
+    // MARK: - Connect button
 
     private var connectButton: some View {
         Button(action: attemptConnect) {
@@ -108,64 +109,60 @@ struct DeviceSetupView: View {
                         .progressViewStyle(CircularProgressViewStyle(tint: .white))
                         .scaleEffect(0.85)
                 } else {
-                    Image(systemName: "checkmark.circle")
+                    Image(systemName: "checkmark.circle").foregroundColor(.white)
                 }
                 Text(isChecking ? "Checking connection…" : "Connect")
-                    .fontWeight(.semibold)
+                    .fontWeight(.semibold).foregroundColor(.white)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(buttonBackground)
-            .foregroundColor(.white)
-            .cornerRadius(12)
+            .padding(.vertical, 15)
+            .background(
+                Group {
+                    if inputHost.trimmingCharacters(in: .whitespaces).isEmpty || isChecking {
+                        AnyView(Color.steel.opacity(0.40))
+                    } else {
+                        AnyView(SteelGradient.horizontal)
+                    }
+                }
+            )
+            .cornerRadius(14)
+            .shadow(color: Color.steel.opacity(0.30), radius: 8, x: 0, y: 4)
         }
         .disabled(inputHost.trimmingCharacters(in: .whitespaces).isEmpty || isChecking)
         .animation(.easeInOut(duration: 0.2), value: isChecking)
     }
 
-    private var buttonBackground: Color {
-        let trimmed = inputHost.trimmingCharacters(in: .whitespaces)
-        return (trimmed.isEmpty || isChecking) ? .blue.opacity(0.4) : .blue
-    }
-
     private func errorBanner(message: String) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(.red)
-            Text(message)
-                .font(.callout)
-                .foregroundColor(.red)
+            Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red)
+            Text(message).font(.callout).foregroundColor(.red)
             Spacer()
         }
         .padding(12)
-        .background(Color.red.opacity(0.1))
+        .background(Color.red.opacity(0.08))
         .cornerRadius(10)
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.red.opacity(0.20), lineWidth: 1))
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
+    // MARK: - Help section
+
     private var helpSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("How to find the server address")
-                .font(.subheadline)
-                .fontWeight(.medium)
+        VStack(alignment: .leading, spacing: 14) {
+            Label("How to find the server address", systemImage: "questionmark.circle")
+                .font(.subheadline).fontWeight(.semibold).foregroundColor(.healthText)
 
             helpRow(icon: "1.circle.fill", text: "Connect your iPhone to the same WiFi network as the Orange Pi.")
             helpRow(icon: "2.circle.fill", text: "On the Orange Pi, run: ip addr show | grep 'inet '")
             helpRow(icon: "3.circle.fill", text: "Look for an address like 192.168.x.x and enter it above.")
         }
-        .padding(16)
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(12)
+        .ruCard()
     }
 
     private func helpRow(icon: String, text: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon)
-                .foregroundColor(.blue)
-                .frame(width: 22, height: 22)
-            Text(text)
-                .font(.callout)
-                .foregroundColor(.secondary)
+            Image(systemName: icon).foregroundColor(.steel).frame(width: 22, height: 22)
+            Text(text).font(.callout).foregroundColor(.healthSub)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -196,7 +193,6 @@ struct DeviceSetupView: View {
                 guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                     throw URLError(.badServerResponse)
                 }
-                // Optionally parse status
                 _ = try? JSONDecoder().decode(HealthResponse.self, from: data)
 
                 await MainActor.run {
@@ -229,14 +225,12 @@ struct DeviceSetupView: View {
 
     private func isValidIP(_ string: String) -> Bool {
         let parts = string.split(separator: ".").map(String.init)
-        // Accept hostname-like or standard IPv4
         if parts.count == 4 {
             return parts.allSatisfy { part in
                 guard let value = Int(part), (0...255).contains(value) else { return false }
                 return true
             }
         }
-        // Allow plain hostnames
         return string.count > 0 && !string.contains(" ")
     }
 }

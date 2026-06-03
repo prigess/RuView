@@ -127,7 +127,8 @@ final class RuViewClient: ObservableObject {
     private func checkStaleness(tick: Int) {
         if tick == lastTickSeen {
             consecutiveUnchangedTicks += 1
-            if consecutiveUnchangedTicks >= 5 {
+            // ~10 unchanged ticks ≈ 1s — long enough to ignore micro-blips
+            if consecutiveUnchangedTicks >= 10 {
                 isSignalLost = true
             }
         } else {
@@ -262,9 +263,9 @@ final class RuViewClient: ObservableObject {
     }
 
     func startRecording(name: String) async throws -> String {
-        let result = try await post("/api/v1/recording/start", body: ["name": name], as: BoolResponse.self)
+        let result = try await post("/api/v1/recording/start", body: ["id": name], as: BoolResponse.self)
         guard result.success else { throw RuViewError.serverError }
-        return result.recordingId ?? "unknown"
+        return result.recordingId ?? name
     }
 
     func stopRecording() async throws -> Bool {

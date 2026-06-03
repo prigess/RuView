@@ -20,7 +20,7 @@ struct TrainingWizardView: View {
     @State private var completedLabels: [String] = []
 
     private let recordingLabels = ["absent", "present_still", "present_moving", "active"]
-    private let recordingDuration = 30 // seconds per label
+    private let recordingDuration = 30
 
     var body: some View {
         NavigationView {
@@ -28,13 +28,11 @@ struct TrainingWizardView: View {
                 progressIndicator
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
-                    .padding(.bottom, 8)
+                    .padding(.bottom, 12)
 
                 ScrollView {
-                    VStack(spacing: 20) {
-                        stepView
-                    }
-                    .padding(20)
+                    VStack(spacing: 20) { stepView }
+                        .padding(20)
                 }
 
                 bottomBar
@@ -42,14 +40,13 @@ struct TrainingWizardView: View {
                     .padding(.bottom, 24)
                     .padding(.top, 8)
             }
+            .background(Color.steelPale.ignoresSafeArea())
             .navigationTitle("Training Wizard")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
-                        cleanup()
-                        dismiss()
-                    }
+                    Button("Cancel") { cleanup(); dismiss() }
+                        .foregroundColor(.steel)
                 }
             }
         }
@@ -61,8 +58,8 @@ struct TrainingWizardView: View {
         HStack(spacing: 6) {
             ForEach(0..<6, id: \.self) { step in
                 Capsule()
-                    .fill(step <= currentStep ? Color.blue : Color(.systemGray4))
-                    .frame(height: 4)
+                    .fill(step <= currentStep ? Color.steel : Color.steelLight.opacity(0.40))
+                    .frame(height: 5)
                     .animation(.easeInOut(duration: 0.3), value: currentStep)
             }
         }
@@ -87,50 +84,35 @@ struct TrainingWizardView: View {
 
     private var step0Welcome: some View {
         VStack(alignment: .leading, spacing: 20) {
-            stepHeader(
-                icon: "graduationcap.fill",
-                iconColor: .blue,
-                title: "Train Your Classifier",
-                subtitle: "This wizard guides you through calibrating and training the adaptive sensing classifier for your environment."
-            )
+            stepHeader(icon: "graduationcap.fill", iconColor: .steel,
+                       title: "Train Your Classifier",
+                       subtitle: "This wizard guides you through calibrating and training the adaptive sensing classifier for your environment.")
 
             VStack(alignment: .leading, spacing: 12) {
-                Text("Prerequisites")
-                    .font(.headline)
-
+                Text("Prerequisites").font(.headline).foregroundColor(.healthText)
                 checkRow(text: "Sensing server is running and connected", checked: viewModel.isConnected)
                 checkRow(text: "All ESP32 nodes are powered on", checked: viewModel.nodes.count > 0)
                 checkRow(text: "Room is clear for calibration step", checked: true)
                 checkRow(text: "You have 5–10 minutes available", checked: true)
             }
-            .padding(16)
-            .background(Color(.secondarySystemBackground))
-            .cornerRadius(12)
+            .ruCard()
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Steps overview")
-                    .font(.headline)
-
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Steps overview").font(.headline).foregroundColor(.healthText)
                 overviewRow(number: "1", title: "Calibrate", description: "Establish baseline signal")
                 overviewRow(number: "2", title: "Record", description: "Record 4 activity labels")
                 overviewRow(number: "3", title: "Train", description: "Train the classifier")
                 overviewRow(number: "4", title: "Ground truth", description: "Set expected person count")
             }
-            .padding(16)
-            .background(Color(.secondarySystemBackground))
-            .cornerRadius(12)
+            .ruCard()
 
             if !viewModel.isConnected {
                 HStack(spacing: 10) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.orange)
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange)
                     Text("Connect to a sensing server before proceeding.")
-                        .font(.callout)
-                        .foregroundColor(.orange)
+                        .font(.callout).foregroundColor(.orange)
                 }
-                .padding(12)
-                .background(Color.orange.opacity(0.1))
-                .cornerRadius(10)
+                .padding(12).background(Color.orange.opacity(0.08)).cornerRadius(10)
             }
         }
     }
@@ -139,12 +121,9 @@ struct TrainingWizardView: View {
 
     private var step1Calibration: some View {
         VStack(alignment: .leading, spacing: 20) {
-            stepHeader(
-                icon: "waveform.path.ecg",
-                iconColor: .purple,
-                title: "Baseline Calibration",
-                subtitle: "The system captures the baseline WiFi signal with the room empty. Please leave the sensing area now."
-            )
+            stepHeader(icon: "waveform.path.ecg", iconColor: .steel,
+                       title: "Baseline Calibration",
+                       subtitle: "The system captures the baseline WiFi signal with the room empty. Please leave the sensing area now.")
 
             if let status = calibrationStatus {
                 calibrationProgressCard(status: status)
@@ -152,60 +131,40 @@ struct TrainingWizardView: View {
                 startCalibrationCard
             }
 
-            if let error = errorMessage {
-                errorBanner(message: error)
-            }
+            if let error = errorMessage { errorBanner(message: error) }
         }
     }
 
     private var startCalibrationCard: some View {
         VStack(spacing: 16) {
-            Image(systemName: "waveform")
-                .font(.system(size: 40))
-                .foregroundColor(.purple)
-
-            Text("Ready to calibrate")
-                .font(.headline)
-
+            Image(systemName: "waveform").font(.system(size: 40)).foregroundColor(.steel)
+            Text("Ready to calibrate").font(.headline).foregroundColor(.healthText)
             Text("Make sure the sensing area is empty, then tap Start Calibration.")
-                .font(.callout)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-
+                .font(.callout).foregroundColor(.healthSub).multilineTextAlignment(.center)
             Button(action: beginCalibration) {
                 actionButtonLabel(title: "Start Calibration", isLoading: isWorking)
             }
             .disabled(isWorking)
         }
         .frame(maxWidth: .infinity)
-        .padding(20)
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(12)
+        .ruCard()
     }
 
     private func calibrationProgressCard(status: CalibrationStatus) -> some View {
         VStack(spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Calibrating…")
-                        .font(.headline)
-                    Text(status.status.capitalized)
-                        .font(.callout)
-                        .foregroundColor(.secondary)
+                    Text("Calibrating…").font(.headline).foregroundColor(.healthText)
+                    Text(status.status.capitalized).font(.callout).foregroundColor(.healthSub)
                 }
                 Spacer()
-                if status.active {
-                    ProgressView()
-                }
+                if status.active { ProgressView() }
             }
 
             if let frames = status.frames, let target = status.target, target > 0 {
                 VStack(spacing: 4) {
-                    ProgressView(value: Double(frames), total: Double(target))
-                        .tint(.purple)
-                    Text("\(frames) / \(target) frames")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    ProgressView(value: Double(frames), total: Double(target)).tint(.steel)
+                    Text("\(frames) / \(target) frames").font(.caption).foregroundColor(.healthSub)
                 }
             }
 
@@ -215,47 +174,33 @@ struct TrainingWizardView: View {
                         Image(systemName: "stop.fill")
                         Text("Stop Calibration")
                     }
-                    .foregroundColor(.red)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color.red.opacity(0.1))
-                    .cornerRadius(10)
+                    .foregroundColor(.red).frame(maxWidth: .infinity).padding(.vertical, 10)
+                    .background(Color.red.opacity(0.08)).cornerRadius(10)
                 }
                 .disabled(isWorking)
             } else {
-                // Calibration finished
                 HStack {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                    Text("Calibration complete")
-                        .foregroundColor(.green)
-                        .fontWeight(.medium)
+                    Image(systemName: "checkmark.circle.fill").foregroundColor(.steel)
+                    Text("Calibration complete").foregroundColor(.steel).fontWeight(.medium)
                 }
             }
         }
-        .padding(16)
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(12)
+        .ruCard()
     }
 
     // MARK: - Step 2: Recording
 
     private var step2Recording: some View {
         VStack(alignment: .leading, spacing: 20) {
-            stepHeader(
-                icon: "record.circle",
-                iconColor: .red,
-                title: "Record Activities",
-                subtitle: "Record each activity label in sequence. Follow the instructions for each label."
-            )
+            stepHeader(icon: "record.circle", iconColor: .heartRed,
+                       title: "Record Activities",
+                       subtitle: "Record each activity label in sequence. Follow the instructions for each label.")
 
             ForEach(Array(recordingLabels.enumerated()), id: \.element) { index, label in
                 recordingLabelCard(label: label, index: index)
             }
 
-            if let error = errorMessage {
-                errorBanner(message: error)
-            }
+            if let error = errorMessage { errorBanner(message: error) }
         }
     }
 
@@ -265,48 +210,29 @@ struct TrainingWizardView: View {
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack {
-                // Status icon
                 if isCompleted {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
+                    Image(systemName: "checkmark.circle.fill").foregroundColor(.steel)
                 } else if isActive {
-                    Image(systemName: "record.circle.fill")
-                        .foregroundColor(.red)
+                    Image(systemName: "record.circle.fill").foregroundColor(.heartRed)
                 } else {
-                    Text("\(index + 1)")
-                        .font(.caption)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
+                    Text("\(index + 1)").font(.caption).fontWeight(.bold).foregroundColor(.white)
                         .frame(width: 22, height: 22)
-                        .background(Color(.systemGray3))
-                        .clipShape(Circle())
+                        .background(Color.steelLight).clipShape(Circle())
                 }
-
-                Text(label.motionLevelDisplay)
-                    .font(.headline)
-
+                Text(label.motionLevelDisplay).font(.headline).foregroundColor(.healthText)
                 Spacer()
-
                 if isActive && recordingCountdown > 0 {
                     Text("\(recordingCountdown)s")
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .foregroundColor(.red)
-                        .monospacedDigit()
+                        .font(.title3).fontWeight(.bold).foregroundColor(.heartRed).monospacedDigit()
                 }
             }
 
-            Text(recordingInstruction(for: label))
-                .font(.callout)
-                .foregroundColor(.secondary)
+            Text(recordingInstruction(for: label)).font(.callout).foregroundColor(.healthSub)
 
             if isActive {
                 if recordingCountdown > 0 {
-                    ProgressView(
-                        value: Double(recordingDuration - recordingCountdown),
-                        total: Double(recordingDuration)
-                    )
-                    .tint(.red)
+                    ProgressView(value: Double(recordingDuration - recordingCountdown),
+                                 total: Double(recordingDuration)).tint(.heartRed)
                 } else {
                     Button(action: { startRecordingLabel(label) }) {
                         actionButtonLabel(title: "Start Recording \"\(label.motionLevelDisplay)\"", isLoading: isWorking)
@@ -314,20 +240,18 @@ struct TrainingWizardView: View {
                     .disabled(isWorking)
                 }
             } else if !isCompleted && completedLabels.count == index {
-                // This is the next label to record
                 Button(action: { startRecordingLabel(label) }) {
                     actionButtonLabel(title: "Record \"\(label.motionLevelDisplay)\"", isLoading: false)
                 }
             }
         }
         .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(isActive ? Color.red.opacity(0.05) : Color(.secondarySystemBackground))
-        )
+        .background(Color.surface)
+        .cornerRadius(14)
+        .shadow(color: Color.steel.opacity(isActive ? 0.15 : 0.08), radius: 6, x: 0, y: 2)
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(isActive ? Color.red.opacity(0.3) : Color.clear, lineWidth: 1.5)
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(isActive ? Color.heartRed.opacity(0.30) : Color.steelLight.opacity(0.30), lineWidth: 1.5)
         )
     }
 
@@ -345,12 +269,9 @@ struct TrainingWizardView: View {
 
     private var step3Training: some View {
         VStack(alignment: .leading, spacing: 20) {
-            stepHeader(
-                icon: "brain.head.profile",
-                iconColor: .indigo,
-                title: "Train Classifier",
-                subtitle: "The system trains an adaptive classifier using your recorded data."
-            )
+            stepHeader(icon: "brain.head.profile", iconColor: .steelDark,
+                       title: "Train Classifier",
+                       subtitle: "The system trains an adaptive classifier using your recorded data.")
 
             if let result = trainResult {
                 trainingResultCard(result: result)
@@ -358,73 +279,43 @@ struct TrainingWizardView: View {
                 trainReadyCard
             }
 
-            if let error = errorMessage {
-                errorBanner(message: error)
-            }
+            if let error = errorMessage { errorBanner(message: error) }
         }
     }
 
     private var trainReadyCard: some View {
         VStack(spacing: 16) {
-            Image(systemName: "cpu")
-                .font(.system(size: 40))
-                .foregroundColor(.indigo)
-
-            Text("Ready to train")
-                .font(.headline)
-
+            Image(systemName: "cpu").font(.system(size: 40)).foregroundColor(.steelDark)
+            Text("Ready to train").font(.headline).foregroundColor(.healthText)
             Text("Training uses the \(completedLabels.count) recorded labels. This may take 30–60 seconds.")
-                .font(.callout)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-
+                .font(.callout).foregroundColor(.healthSub).multilineTextAlignment(.center)
             Button(action: runTraining) {
                 actionButtonLabel(title: "Train Classifier", isLoading: isWorking)
             }
             .disabled(isWorking)
         }
         .frame(maxWidth: .infinity)
-        .padding(20)
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(12)
+        .ruCard()
     }
 
     private func trainingResultCard(result: BoolResponse) -> some View {
         VStack(spacing: 12) {
             if result.success {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 40))
-                    .foregroundColor(.green)
-
-                Text("Training complete!")
-                    .font(.headline)
-                    .foregroundColor(.green)
-
+                Image(systemName: "checkmark.circle.fill").font(.system(size: 40)).foregroundColor(.steel)
+                Text("Training complete!").font(.headline).foregroundColor(.steel)
                 if let accuracy = result.accuracy {
                     VStack(spacing: 4) {
                         Text("\(String(format: "%.1f%%", accuracy * 100))")
-                            .font(.system(size: 36, weight: .bold, design: .rounded))
-                        Text("Classifier accuracy")
-                            .font(.callout)
-                            .foregroundColor(.secondary)
+                            .font(.system(size: 36, weight: .bold, design: .rounded)).foregroundColor(.steelDark)
+                        Text("Classifier accuracy").font(.callout).foregroundColor(.healthSub)
                     }
                 }
             } else {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 40))
-                    .foregroundColor(.red)
-
-                Text("Training failed")
-                    .font(.headline)
-                    .foregroundColor(.red)
-
+                Image(systemName: "xmark.circle.fill").font(.system(size: 40)).foregroundColor(.red)
+                Text("Training failed").font(.headline).foregroundColor(.red)
                 if let err = result.error {
-                    Text(err)
-                        .font(.callout)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
+                    Text(err).font(.callout).foregroundColor(.healthSub).multilineTextAlignment(.center)
                 }
-
                 Button(action: runTraining) {
                     actionButtonLabel(title: "Retry Training", isLoading: isWorking)
                 }
@@ -432,48 +323,37 @@ struct TrainingWizardView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(20)
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(12)
+        .ruCard()
     }
 
     // MARK: - Step 4: Ground truth
 
     private var step4GroundTruth: some View {
         VStack(alignment: .leading, spacing: 20) {
-            stepHeader(
-                icon: "person.3.fill",
-                iconColor: .orange,
-                title: "Set Ground Truth",
-                subtitle: "Tell the system how many people are currently in the sensing area to calibrate person counting."
-            )
+            stepHeader(icon: "person.3.fill", iconColor: .steel,
+                       title: "Set Ground Truth",
+                       subtitle: "Tell the system how many people are currently in the sensing area to calibrate person counting.")
 
             VStack(spacing: 16) {
                 Text("How many people are in the room right now?")
-                    .font(.callout)
-                    .foregroundColor(.secondary)
+                    .font(.callout).foregroundColor(.healthSub)
 
                 HStack {
                     Button {
                         if groundTruthCount > 0 { groundTruthCount -= 1 }
                     } label: {
-                        Image(systemName: "minus.circle.fill")
-                            .font(.title)
-                            .foregroundColor(.blue)
+                        Image(systemName: "minus.circle.fill").font(.title).foregroundColor(.steel)
                     }
 
                     Text("\(groundTruthCount)")
                         .font(.system(size: 48, weight: .bold, design: .rounded))
+                        .foregroundColor(.steelDark)
                         .frame(minWidth: 80)
                         .contentTransition(.numericText())
                         .animation(.spring(response: 0.3), value: groundTruthCount)
 
-                    Button {
-                        groundTruthCount += 1
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.title)
-                            .foregroundColor(.blue)
+                    Button { groundTruthCount += 1 } label: {
+                        Image(systemName: "plus.circle.fill").font(.title).foregroundColor(.steel)
                     }
                 }
 
@@ -483,32 +363,23 @@ struct TrainingWizardView: View {
                 .disabled(isWorking)
             }
             .frame(maxWidth: .infinity)
-            .padding(20)
-            .background(Color(.secondarySystemBackground))
-            .cornerRadius(12)
+            .ruCard()
 
             if let result = groundTruthResult, result.success {
                 HStack(spacing: 10) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
+                    Image(systemName: "checkmark.circle.fill").foregroundColor(.steel)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Ground truth applied")
-                            .fontWeight(.medium)
+                        Text("Ground truth applied").fontWeight(.medium).foregroundColor(.steel)
                         if let factor = result.computedDedupFactor {
                             Text("Dedup factor: \(String(format: "%.2f", factor))")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                                .font(.caption).foregroundColor(.healthSub)
                         }
                     }
                 }
-                .padding(12)
-                .background(Color.green.opacity(0.1))
-                .cornerRadius(10)
+                .padding(12).background(Color.steel.opacity(0.08)).cornerRadius(10)
             }
 
-            if let error = errorMessage {
-                errorBanner(message: error)
-            }
+            if let error = errorMessage { errorBanner(message: error) }
         }
     }
 
@@ -516,42 +387,36 @@ struct TrainingWizardView: View {
 
     private var step5Done: some View {
         VStack(spacing: 24) {
-            Image(systemName: "party.popper.fill")
-                .font(.system(size: 60))
-                .foregroundColor(.blue)
+            ZStack {
+                Circle().fill(SteelGradient.main).frame(width: 100, height: 100)
+                    .shadow(color: Color.steel.opacity(0.35), radius: 14, x: 0, y: 6)
+                Image(systemName: "checkmark").font(.system(size: 44, weight: .bold)).foregroundColor(.white)
+            }
 
             Text("Training Complete!")
-                .font(.largeTitle)
-                .fontWeight(.bold)
+                .font(.largeTitle).fontWeight(.bold).foregroundColor(.healthText)
 
             Text("Your classifier is trained and ready. The sensing system will now use your custom training data for improved accuracy.")
-                .font(.callout)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
+                .font(.callout).foregroundColor(.healthSub).multilineTextAlignment(.center)
 
             VStack(spacing: 12) {
                 if let accuracy = trainResult?.accuracy {
-                    summaryRow(label: "Classifier accuracy", value: "\(String(format: "%.1f%%", accuracy * 100))", color: .green)
+                    summaryRow(label: "Classifier accuracy",
+                               value: "\(String(format: "%.1f%%", accuracy * 100))", color: .steel)
                 }
-                summaryRow(label: "Labels recorded", value: "\(completedLabels.count)", color: .blue)
+                summaryRow(label: "Labels recorded", value: "\(completedLabels.count)", color: .steel)
                 if let factor = groundTruthResult?.computedDedupFactor {
-                    summaryRow(label: "Person dedup factor", value: String(format: "%.2f", factor), color: .orange)
+                    summaryRow(label: "Person dedup factor", value: String(format: "%.2f", factor), color: .steelDark)
                 }
             }
-            .padding(16)
-            .background(Color(.secondarySystemBackground))
-            .cornerRadius(12)
+            .ruCard()
 
-            Button {
-                dismiss()
-            } label: {
-                Text("Done")
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
+            Button { dismiss() } label: {
+                Text("Done").fontWeight(.semibold)
+                    .frame(maxWidth: .infinity).padding(.vertical, 15)
+                    .background(SteelGradient.horizontal)
+                    .foregroundColor(.white).cornerRadius(14)
+                    .shadow(color: Color.steel.opacity(0.30), radius: 8, x: 0, y: 4)
             }
         }
         .padding(.top, 20)
@@ -569,15 +434,11 @@ struct TrainingWizardView: View {
                         Image(systemName: "chevron.left")
                         Text("Back")
                     }
-                    .foregroundColor(.secondary)
+                    .foregroundColor(.healthSub)
                 }
             }
-
             Spacer()
-
-            if currentStep < 5 {
-                nextButton
-            }
+            if currentStep < 5 { nextButton }
         }
     }
 
@@ -585,44 +446,24 @@ struct TrainingWizardView: View {
     private var nextButton: some View {
         switch currentStep {
         case 0:
-            Button {
-                withAnimation { currentStep = 1 }
-            } label: {
-                primaryButton(title: "Begin")
-            }
-            .disabled(!viewModel.isConnected)
+            Button { withAnimation { currentStep = 1 } } label: { primaryButton(title: "Begin") }
+                .disabled(!viewModel.isConnected)
 
         case 1:
             let calDone = calibrationStatus != nil && calibrationStatus?.active == false
-            Button {
-                withAnimation { currentStep = 2 }
-            } label: {
-                primaryButton(title: "Next: Record")
-            }
-            .disabled(!calDone)
+            Button { withAnimation { currentStep = 2 } } label: { primaryButton(title: "Next: Record") }
+                .disabled(!calDone)
 
         case 2:
-            Button {
-                withAnimation { currentStep = 3 }
-            } label: {
-                primaryButton(title: "Next: Train")
-            }
-            .disabled(completedLabels.count < recordingLabels.count)
+            Button { withAnimation { currentStep = 3 } } label: { primaryButton(title: "Next: Train") }
+                .disabled(completedLabels.count < recordingLabels.count)
 
         case 3:
-            Button {
-                withAnimation { currentStep = 4 }
-            } label: {
-                primaryButton(title: "Next: Ground Truth")
-            }
-            .disabled(trainResult == nil || trainResult?.success == false)
+            Button { withAnimation { currentStep = 4 } } label: { primaryButton(title: "Next: Ground Truth") }
+                .disabled(trainResult == nil || trainResult?.success == false)
 
         case 4:
-            Button {
-                withAnimation { currentStep = 5 }
-            } label: {
-                primaryButton(title: "Finish")
-            }
+            Button { withAnimation { currentStep = 5 } } label: { primaryButton(title: "Finish") }
 
         default:
             EmptyView()
@@ -632,8 +473,7 @@ struct TrainingWizardView: View {
     // MARK: - Actions
 
     private func beginCalibration() {
-        isWorking = true
-        errorMessage = nil
+        isWorking = true; errorMessage = nil
         Task {
             do {
                 _ = try await viewModel.client.startCalibration()
@@ -651,9 +491,7 @@ struct TrainingWizardView: View {
             do {
                 _ = try await viewModel.client.stopCalibration()
                 calibrationStatus = try? await viewModel.client.fetchCalibrationStatus()
-            } catch {
-                errorMessage = "Failed to stop calibration."
-            }
+            } catch { errorMessage = "Failed to stop calibration." }
             isWorking = false
         }
     }
@@ -663,9 +501,7 @@ struct TrainingWizardView: View {
         calibrationPollTask = Task {
             while !Task.isCancelled {
                 if let status = try? await viewModel.client.fetchCalibrationStatus() {
-                    await MainActor.run {
-                        calibrationStatus = status
-                    }
+                    await MainActor.run { calibrationStatus = status }
                     if !status.active { break }
                 }
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
@@ -676,25 +512,20 @@ struct TrainingWizardView: View {
 
     private func startRecordingLabel(_ label: String) {
         guard !isWorking else { return }
-        isWorking = true
-        currentRecordingLabel = label
-        errorMessage = nil
-
+        isWorking = true; currentRecordingLabel = label; errorMessage = nil
         Task {
             do {
-                _ = try await viewModel.client.startRecording(name: label)
+                _ = try await viewModel.client.startRecording(name: "train_\(label)")
                 await startCountdown()
                 _ = try await viewModel.client.stopRecording()
                 await MainActor.run {
                     completedLabels.append(label)
-                    currentRecordingLabel = ""
-                    isWorking = false
+                    currentRecordingLabel = ""; isWorking = false
                 }
             } catch {
                 await MainActor.run {
                     errorMessage = "Recording failed for \"\(label)\". Check connection and try again."
-                    currentRecordingLabel = ""
-                    isWorking = false
+                    currentRecordingLabel = ""; isWorking = false
                 }
             }
         }
@@ -704,39 +535,28 @@ struct TrainingWizardView: View {
         await MainActor.run { recordingCountdown = recordingDuration }
         for i in stride(from: recordingDuration, through: 0, by: -1) {
             await MainActor.run { recordingCountdown = i }
-            if i > 0 {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-            }
+            if i > 0 { try? await Task.sleep(nanoseconds: 1_000_000_000) }
         }
     }
 
     private func runTraining() {
-        isWorking = true
-        errorMessage = nil
+        isWorking = true; errorMessage = nil
         Task {
             do {
                 let result = try await viewModel.client.retrainClassifier()
                 trainResult = result
-                if !result.success {
-                    errorMessage = result.error ?? "Training failed. Please try again."
-                }
-            } catch {
-                errorMessage = "Could not complete training. Check connection and try again."
-            }
+                if !result.success { errorMessage = result.error ?? "Training failed. Please try again." }
+            } catch { errorMessage = "Could not complete training. Check connection and try again." }
             isWorking = false
         }
     }
 
     private func applyGroundTruth() {
-        isWorking = true
-        errorMessage = nil
+        isWorking = true; errorMessage = nil
         Task {
             do {
-                let result = try await viewModel.client.setGroundTruth(groundTruthCount)
-                groundTruthResult = result
-            } catch {
-                errorMessage = "Failed to apply ground truth. Check connection and try again."
-            }
+                groundTruthResult = try await viewModel.client.setGroundTruth(groundTruthCount)
+            } catch { errorMessage = "Failed to apply ground truth. Check connection and try again." }
             isWorking = false
         }
     }
@@ -746,49 +566,32 @@ struct TrainingWizardView: View {
         countdownTask?.cancel()
     }
 
-    // MARK: - Reusable UI components
+    // MARK: - Reusable UI
 
     private func stepHeader(icon: String, iconColor: Color, title: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 36))
-                .foregroundColor(iconColor)
-
-            Text(title)
-                .font(.title2)
-                .fontWeight(.bold)
-
-            Text(subtitle)
-                .font(.callout)
-                .foregroundColor(.secondary)
+            Image(systemName: icon).font(.system(size: 34)).foregroundColor(iconColor)
+            Text(title).font(.title2).fontWeight(.bold).foregroundColor(.healthText)
+            Text(subtitle).font(.callout).foregroundColor(.healthSub)
         }
     }
 
     private func checkRow(text: String, checked: Bool) -> some View {
         HStack(spacing: 10) {
             Image(systemName: checked ? "checkmark.circle.fill" : "circle")
-                .foregroundColor(checked ? .green : .secondary)
-            Text(text)
-                .font(.callout)
-                .foregroundColor(checked ? .primary : .secondary)
+                .foregroundColor(checked ? .steel : .healthSub)
+            Text(text).font(.callout).foregroundColor(checked ? .healthText : .healthSub)
         }
     }
 
     private func overviewRow(number: String, title: String, description: String) -> some View {
         HStack(spacing: 12) {
-            Text(number)
-                .font(.callout)
-                .fontWeight(.bold)
-                .foregroundColor(.white)
-                .frame(width: 24, height: 24)
-                .background(Color.blue)
-                .clipShape(Circle())
-
+            Text(number).font(.callout).fontWeight(.bold).foregroundColor(.white)
+                .frame(width: 24, height: 24).background(Color.steel).clipShape(Circle())
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).fontWeight(.medium)
-                Text(description).font(.caption).foregroundColor(.secondary)
+                Text(title).fontWeight(.medium).foregroundColor(.healthText)
+                Text(description).font(.caption).foregroundColor(.healthSub)
             }
-
             Spacer()
         }
     }
@@ -796,52 +599,37 @@ struct TrainingWizardView: View {
     private func actionButtonLabel(title: String, isLoading: Bool) -> some View {
         HStack {
             if isLoading {
-                ProgressView()
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                    .scaleEffect(0.85)
+                ProgressView().progressViewStyle(CircularProgressViewStyle(tint: .white)).scaleEffect(0.85)
             }
-            Text(isLoading ? "Working…" : title)
-                .fontWeight(.semibold)
+            Text(isLoading ? "Working…" : title).fontWeight(.semibold)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-        .background(Color.blue)
-        .foregroundColor(.white)
-        .cornerRadius(10)
+        .frame(maxWidth: .infinity).padding(.vertical, 12)
+        .background(SteelGradient.horizontal)
+        .foregroundColor(.white).cornerRadius(10)
     }
 
     private func primaryButton(title: String) -> some View {
-        Text(title)
-            .fontWeight(.semibold)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
-            .background(Color.blue)
-            .foregroundColor(.white)
-            .cornerRadius(10)
+        Text(title).fontWeight(.semibold)
+            .padding(.horizontal, 20).padding(.vertical, 10)
+            .background(SteelGradient.horizontal)
+            .foregroundColor(.white).cornerRadius(10)
     }
 
     private func summaryRow(label: String, value: String, color: Color) -> some View {
         HStack {
-            Text(label)
-                .foregroundColor(.secondary)
+            Text(label).foregroundColor(.healthSub)
             Spacer()
-            Text(value)
-                .fontWeight(.semibold)
-                .foregroundColor(color)
+            Text(value).fontWeight(.semibold).foregroundColor(color)
         }
     }
 
     private func errorBanner(message: String) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(.red)
-            Text(message)
-                .font(.callout)
-                .foregroundColor(.red)
+            Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red)
+            Text(message).font(.callout).foregroundColor(.red)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.1))
-        .cornerRadius(10)
+        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.red.opacity(0.08)).cornerRadius(10)
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.red.opacity(0.20), lineWidth: 1))
     }
 }

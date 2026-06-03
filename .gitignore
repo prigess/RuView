@@ -261,3 +261,14 @@ v2/crates/rvcsi-node/*.node
 v2/crates/rvcsi-node/binding.js
 v2/crates/rvcsi-node/binding.d.ts
 v2/crates/rvcsi-node/npm/
+
+# macOS / Xcode local state
+.DS_Store
+**/.DS_Store
+**/xcuserdata/
+**/*.xcuserstate
+
+# Sensing-server runtime data (recordings, persisted config)
+v2/data/recordings/
+v2/data/config.json
+v2/data/*.bin

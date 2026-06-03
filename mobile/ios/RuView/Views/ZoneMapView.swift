@@ -10,9 +10,13 @@ struct ZoneMapView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
+            VStack(spacing: 14) {
+                SectionHeader(title: "Room Layout",
+                              trailing: viewModel.isLiveDataFlowing ? "Live" : "Idle")
                 headerCard
+                SectionHeader(title: "Zones")
                 zoneGrid
+                SectionHeader(title: "Legend")
                 legendCard
                 if let error = viewModel.zonesError {
                     errorBanner(message: error)
@@ -20,48 +24,43 @@ struct ZoneMapView: View {
             }
             .padding(16)
         }
+        .background(Color.steelPale.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Color.clear.frame(height: 100)
+        }
         .navigationTitle("Zone Map")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                refreshButton
-            }
+            ToolbarItem(placement: .navigationBarTrailing) { refreshButton }
         }
         .onAppear { startRefreshTimer() }
         .onDisappear { stopRefreshTimer() }
-        .refreshable {
-            await viewModel.refreshZones()
-        }
+        .refreshable { await viewModel.refreshZones() }
     }
 
     // MARK: - Header
 
     private var headerCard: some View {
         HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Room Overview")
-                    .font(.headline)
-                Text("2×2 zone layout")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    LivePulseDot(color: .steel, size: 6, active: viewModel.isLiveDataFlowing)
+                    Text("Room Overview").font(.headline).foregroundColor(.healthText)
+                }
+                Text("2×2 zone layout").font(.caption).foregroundColor(.healthSub)
             }
-
             Spacer()
-
             VStack(alignment: .trailing, spacing: 4) {
                 let totalPersons = viewModel.zones.reduce(0) { $0 + $1.personCount }
                 Text("\(totalPersons)")
-                    .font(.title)
-                    .fontWeight(.bold)
-                    .foregroundColor(.primary)
-                Text("total persons")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(.title).fontWeight(.bold)
+                    .foregroundColor(.steel)
+                    .contentTransition(.numericText())
+                    .monospacedDigit()
+                Text("total persons").font(.caption).foregroundColor(.healthSub)
             }
         }
-        .padding(16)
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(12)
+        .ruCard()
     }
 
     // MARK: - Zone grid
@@ -73,13 +72,20 @@ struct ZoneMapView: View {
         } else if viewModel.zones.isEmpty {
             emptyState
         } else {
-            // Show exactly 4 zones (zone_1 through zone_4), filling gaps
             let displayZones = makeDisplayZones()
             LazyVGrid(columns: gridColumns, spacing: 12) {
                 ForEach(displayZones) { zone in
-                    ZoneTile(zone: zone, color: viewModel.zoneColor(personCount: zone.personCount))
+                    ZoneTile(zone: zone, occupancyColor: zoneOccupancyColor(personCount: zone.personCount))
                 }
             }
+        }
+    }
+
+    private func zoneOccupancyColor(personCount: Int) -> Color {
+        switch personCount {
+        case 0: return Color.steelPale
+        case 1: return Color.steel.opacity(0.22)
+        default: return Color.steel.opacity(0.52)
         }
     }
 
@@ -88,33 +94,21 @@ struct ZoneMapView: View {
     private var legendCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Color Legend")
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .foregroundColor(.secondary)
-
+                .font(.subheadline).fontWeight(.medium).foregroundColor(.healthSub)
             HStack(spacing: 20) {
-                legendItem(color: Color(.systemGray5), label: "Empty (0)")
-                legendItem(color: .blue.opacity(0.3), label: "1 person")
-                legendItem(color: .orange.opacity(0.4), label: "2+ persons")
+                legendItem(color: Color.steelPale, label: "Empty (0)")
+                legendItem(color: Color.steel.opacity(0.22), label: "1 person")
+                legendItem(color: Color.steel.opacity(0.52), label: "2+ persons")
             }
         }
-        .padding(14)
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(12)
+        .ruCard()
     }
 
     private func legendItem(color: Color, label: String) -> some View {
         HStack(spacing: 6) {
-            RoundedRectangle(cornerRadius: 4)
-                .fill(color)
-                .frame(width: 20, height: 16)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(Color(.systemGray3), lineWidth: 0.5)
-                )
-            Text(label)
-                .font(.caption)
-                .foregroundColor(.secondary)
+            RoundedRectangle(cornerRadius: 4).fill(color).frame(width: 20, height: 16)
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.steelLight.opacity(0.5), lineWidth: 0.5))
+            Text(label).font(.caption).foregroundColor(.healthSub)
         }
     }
 
@@ -122,10 +116,9 @@ struct ZoneMapView: View {
 
     private var loadingGrid: some View {
         LazyVGrid(columns: gridColumns, spacing: 12) {
-            ForEach(0..<4, id: \.self) { _ in
+            ForEach([0, 1, 2, 3], id: \.self) { _ in
                 RoundedRectangle(cornerRadius: 14)
-                    .fill(Color(.secondarySystemBackground))
-                    .frame(height: 120)
+                    .fill(Color.surface).frame(height: 120)
                     .redacted(reason: .placeholder)
             }
         }
@@ -133,19 +126,16 @@ struct ZoneMapView: View {
 
     private var emptyState: some View {
         VStack(spacing: 16) {
-            // Placeholder 2x2 grid
             LazyVGrid(columns: gridColumns, spacing: 12) {
                 ForEach(["Zone 1", "Zone 2", "Zone 3", "Zone 4"], id: \.self) { name in
                     ZoneTile(
                         zone: ZoneInfo(name: name, personCount: 0, status: "unknown"),
-                        color: Color(.systemGray6)
+                        occupancyColor: Color.steelPale
                     )
                 }
             }
-
             Text(viewModel.isConnected ? "No zone data yet" : "Connect to view zones")
-                .font(.callout)
-                .foregroundColor(.secondary)
+                .font(.callout).foregroundColor(.healthSub)
         }
     }
 
@@ -153,28 +143,21 @@ struct ZoneMapView: View {
 
     private func errorBanner(message: String) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(.orange)
-            Text(message)
-                .font(.callout)
-                .foregroundColor(.orange)
+            Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange)
+            Text(message).font(.callout).foregroundColor(.orange)
             Spacer()
         }
-        .padding(12)
-        .background(Color.orange.opacity(0.1))
-        .cornerRadius(10)
+        .padding(12).background(Color.orange.opacity(0.08)).cornerRadius(10)
     }
 
     // MARK: - Refresh
 
     private var refreshButton: some View {
-        Button {
-            Task { await viewModel.refreshZones() }
-        } label: {
+        Button { Task { await viewModel.refreshZones() } } label: {
             if viewModel.zonesLoading {
                 ProgressView().scaleEffect(0.8)
             } else {
-                Image(systemName: "arrow.clockwise")
+                Image(systemName: "arrow.clockwise").foregroundColor(.steel)
             }
         }
     }
@@ -185,13 +168,7 @@ struct ZoneMapView: View {
             Task { await viewModel.refreshZones() }
         }
     }
-
-    private func stopRefreshTimer() {
-        refreshTimer?.invalidate()
-        refreshTimer = nil
-    }
-
-    // MARK: - Display zones helper
+    private func stopRefreshTimer() { refreshTimer?.invalidate(); refreshTimer = nil }
 
     private func makeDisplayZones() -> [ZoneInfo] {
         let zoneNames = ["zone_1", "zone_2", "zone_3", "zone_4"]
@@ -206,71 +183,54 @@ struct ZoneMapView: View {
 
 private struct ZoneTile: View {
     let zone: ZoneInfo
-    let color: Color
+    let occupancyColor: Color
 
     private var zoneDisplayName: String {
-        zone.name
-            .replacingOccurrences(of: "zone_", with: "Zone ")
-            .capitalized
+        zone.name.replacingOccurrences(of: "zone_", with: "Zone ").capitalized
     }
 
-    private var statusColor: Color {
-        zone.status == "monitored" ? .blue : .secondary
-    }
+    private var isMonitored: Bool { zone.status == "monitored" }
 
     var body: some View {
         VStack(spacing: 8) {
             Text(zoneDisplayName)
-                .font(.callout)
-                .fontWeight(.semibold)
-                .foregroundColor(.primary)
+                .font(.callout).fontWeight(.semibold).foregroundColor(.healthText)
 
             Spacer()
 
-            // Person count circle
             ZStack {
                 Circle()
-                    .fill(color)
-                    .frame(width: 56, height: 56)
-                    .overlay(
-                        Circle()
-                            .stroke(Color(.systemGray3), lineWidth: 0.5)
-                    )
+                    .fill(occupancyColor)
+                    .frame(width: 60, height: 60)
+                    .overlay(Circle().stroke(Color.steel.opacity(0.20), lineWidth: 1))
 
                 Text("\(zone.personCount)")
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .foregroundColor(zone.personCount == 0 ? .secondary : .primary)
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .foregroundColor(zone.personCount == 0 ? .healthSub : .steelDark)
                     .contentTransition(.numericText())
-                    .animation(.spring(response: 0.4), value: zone.personCount)
+                    .monospacedDigit()
             }
 
             Text(zone.personCount == 1 ? "person" : "persons")
-                .font(.caption2)
-                .foregroundColor(.secondary)
+                .font(.caption2).foregroundColor(.healthSub)
 
             Spacer()
 
-            // Status badge
             Text(zone.status.capitalized)
-                .font(.caption2)
-                .fontWeight(.medium)
-                .foregroundColor(statusColor)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(statusColor.opacity(0.12))
+                .font(.caption2).fontWeight(.medium)
+                .foregroundColor(isMonitored ? .steel : .healthSub)
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background((isMonitored ? Color.steel : Color.healthSub).opacity(0.10))
                 .cornerRadius(6)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 140)
-        .padding(.vertical, 12)
-        .padding(.horizontal, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(color)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color(.systemGray4), lineWidth: 0.5)
-                )
+        .frame(maxWidth: .infinity).frame(height: 150)
+        .padding(.vertical, 14).padding(.horizontal, 10)
+        .background(Color.surface)
+        .cornerRadius(16)
+        .shadow(color: Color.steel.opacity(0.10), radius: 8, x: 0, y: 3)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(zone.personCount > 0 ? Color.steel.opacity(0.20) : Color.steelLight.opacity(0.30), lineWidth: 1)
         )
         .animation(.easeInOut(duration: 0.3), value: zone.personCount)
     }
