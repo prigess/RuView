@@ -25,10 +25,11 @@ export const DEFAULTS = {
   wireColor: '#00d878', jointColor: '#ff4060', aura: 0.02,
   field: 0.45, waves: 0.4, ambient: 0.7, reflect: 0.2,
   fov: 50, orbitSpeed: 0.15, grid: true, room: true,
-  scenario: 'auto', cycle: 30, dataSource: 'demo', wsUrl: '',
+  scenario: 'auto', cycle: 30, dataSource: 'demo',
+  wsUrl: `ws://${(typeof window !== 'undefined' ? window.location.hostname : 'localhost')}:3022/ws/sensing`,
 };
 
-export const SETTINGS_VERSION = '6';
+export const SETTINGS_VERSION = '7';
 
 export const PRESETS = {
   foundation: {},
@@ -243,8 +244,13 @@ export class HudController {
     dsSel.addEventListener('change', (e) => {
       s.dataSource = e.target.value;
       document.getElementById('ws-url-row').style.display = e.target.value === 'ws' ? 'flex' : 'none';
-      if (e.target.value === 'ws' && s.wsUrl) obs._connectWS(s.wsUrl);
-      else obs._disconnectWS();
+      if (e.target.value === 'ws') {
+        obs._wsReconnectAttempts = 0;
+        if (s.wsUrl) obs._connectWS(s.wsUrl);
+        else obs._autoDetectLive();
+      } else {
+        obs._disconnectWS();
+      }
       this.updateSourceBadge(s.dataSource, obs._ws);
       this.saveSettings();
     });

@@ -2270,6 +2270,7 @@ async fn windows_wifi_task(state: SharedState, tick_ms: u64) {
         );
         s.last_tracker_instant = last_tracker_instant;
         if !tracked.is_empty() {
+            update.estimated_persons = Some(tracked.len());
             update.persons = Some(tracked);
         }
 
@@ -2418,10 +2419,14 @@ async fn windows_wifi_fallback_tick(state: &SharedState, seq: u32) {
 
     let raw_persons = derive_pose_from_sensing(&update);
     let mut last_tracker_instant = s.last_tracker_instant.take();
-    let tracked =
-        tracker_bridge::tracker_update(&mut s.pose_tracker, &mut last_tracker_instant, raw_persons);
+    let tracked = tracker_bridge::tracker_update(
+        &mut s.pose_tracker,
+        &mut last_tracker_instant,
+        raw_persons,
+    );
     s.last_tracker_instant = last_tracker_instant;
     if !tracked.is_empty() {
+        update.estimated_persons = Some(tracked.len());
         update.persons = Some(tracked);
     }
 
@@ -4854,6 +4859,7 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                     );
                     s.last_tracker_instant = last_tracker_instant;
                     if !tracked.is_empty() {
+                        update.estimated_persons = Some(tracked.len());
                         update.persons = Some(tracked);
                     }
 
@@ -5178,6 +5184,7 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                     );
                     s.last_tracker_instant = last_tracker_instant;
                     if !tracked.is_empty() {
+                        update.estimated_persons = Some(tracked.len());
                         update.persons = Some(tracked);
                     }
 
@@ -5339,6 +5346,7 @@ async fn simulated_data_task(state: SharedState, tick_ms: u64) {
         );
         s.last_tracker_instant = last_tracker_instant;
         if !tracked.is_empty() {
+            update.estimated_persons = Some(tracked.len());
             update.persons = Some(tracked);
         }
 

@@ -440,44 +440,55 @@ class Observatory {
   // ---- WebSocket live data ----
 
   _autoDetectLive() {
-    // Probe sensing server health on same origin, then common ports
+    // If we already have a URL configured, connect directly without a health check.
+    // The default URL is derived from window.location.hostname at module load time,
+    // so it is always correct when the page is served by the sensing-server itself.
+    if (this.settings.wsUrl) {
+      console.log('[Observatory] Connecting to configured WS:', this.settings.wsUrl);
+      this.settings.dataSource = 'ws';
+      this._connectWS(this.settings.wsUrl);
+      return;
+    }
+
+    // Discovery fallback: probe health endpoints on common ports then build WS URL.
     const host = window.location.hostname || 'localhost';
+    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const candidates = [
-      window.location.origin,                   // same origin (e.g. :3000)
-      `http://${host}:8765`,                     // default WS port
-      `http://${host}:3000`,                     // default HTTP port
+      `${wsProto}//${window.location.host}/ws/sensing`,   // same origin
+      `${wsProto}//${host}:3022/ws/sensing`,              // sensing-server HTTP port
+      `${wsProto}//${host}:3023/ws/sensing`,              // sensing-server WS-only port
+      `${wsProto}//${host}:8765/ws/sensing`,              // legacy port
     ];
-    // Deduplicate
     const unique = [...new Set(candidates)];
 
-    const tryNext = (i) => {
-      if (i >= unique.length) {
-        console.log('[Observatory] No sensing server detected, using demo mode');
+    let probeIdx = 0;
+    let found = false;
+
+    const tryNextWs = () => {
+      if (found || probeIdx >= unique.length) {
+        if (!found) console.log('[Observatory] No sensing server detected, using demo mode');
         return;
       }
-      const base = unique[i];
-      fetch(`${base}/health`, { signal: AbortSignal.timeout(1500) })
-        .then(r => r.ok ? r.json() : Promise.reject())
-        .then(data => {
-          if (data && data.status === 'ok') {
-            const wsProto = base.startsWith('https') ? 'wss:' : 'ws:';
-            const urlObj = new URL(base);
-            const wsUrl = `${wsProto}//${urlObj.host}/ws/sensing`;
-            console.log('[Observatory] Sensing server detected at', base, '→', wsUrl);
-            this.settings.dataSource = 'ws';
-            this.settings.wsUrl = wsUrl;
-            this._connectWS(wsUrl);
-          } else {
-            tryNext(i + 1);
-          }
-        })
-        .catch(() => tryNext(i + 1));
+      const url = unique[probeIdx++];
+      const probe = new WebSocket(url);
+      const timer = setTimeout(() => { if (probe.readyState !== WebSocket.OPEN) probe.close(); }, 2000);
+      probe.onopen = () => {
+        clearTimeout(timer);
+        found = true;
+        probe.close();
+        console.log('[Observatory] Sensing server detected at', url);
+        this.settings.dataSource = 'ws';
+        this.settings.wsUrl = url;
+        this._connectWS(url);
+      };
+      probe.onerror = () => {};
+      probe.onclose = () => { clearTimeout(timer); if (!found) tryNextWs(); };
     };
-    tryNext(0);
+    tryNextWs();
   }
 
   _connectWS(url) {
-    this._disconnectWS();
+    this._disconnectWS(false);  // don't reset reconnect counter; only reset on success (onopen)
     this._wsUrl = url;  // Store for reconnection
     try {
       this._ws = new WebSocket(url);
@@ -516,9 +527,11 @@ class Observatory {
     this._wsReconnectAttempts++;
 
     if (this._wsReconnectAttempts > this._wsMaxReconnectAttempts) {
-      console.log('[Observatory] Max reconnect attempts reached, falling back to demo');
-      this.settings.dataSource = 'demo';
-      this._hud.updateSourceBadge('demo', null);
+      // Reset counter and retry auto-detect after 30s — don't permanently lock to demo.
+      console.log('[Observatory] Max reconnect attempts reached, retrying auto-detect in 30s');
+      this._wsReconnectAttempts = 0;
+      this._hud.updateSourceBadge('reconnecting', null);
+      this._wsReconnectTimer = setTimeout(() => this._autoDetectLive(), 30000);
       return;
     }
 
@@ -537,13 +550,16 @@ class Observatory {
     }, delay);
   }
 
-  _disconnectWS() {
+  _disconnectWS(resetCounter = true) {
     // Clear any pending reconnect timer
     if (this._wsReconnectTimer) {
       clearTimeout(this._wsReconnectTimer);
       this._wsReconnectTimer = null;
     }
-    this._wsReconnectAttempts = 0;
+    // Only reset the reconnect counter when the user explicitly disconnects.
+    // Scheduled reconnect attempts call _connectWS (which calls _disconnectWS(false))
+    // and must not reset the counter, otherwise the counter never reaches maxAttempts.
+    if (resetCounter) this._wsReconnectAttempts = 0;
     if (this._ws) { this._ws.close(); this._ws = null; }
     this._liveData = null;
   }
