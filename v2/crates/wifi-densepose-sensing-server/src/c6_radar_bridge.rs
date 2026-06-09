@@ -104,16 +104,30 @@ struct RadarState {
     motion_energy_ema: f32,
 }
 
+// Physiologic plausibility ranges. The MR60BHA2 emits real but uninformative
+// numbers (1-5 BPM) while it locks onto a target — those should NOT promote
+// to the live or held-good slots, otherwise the iOS app's own plausibility
+// gate will keep masking the radar entirely. Filtering here means the held
+// value stays the last RELIABLE reading instead of "the most recent number
+// the radar happened to print."
+const HR_PLAUSIBLE_MIN_BPM: f64 = 40.0;
+const HR_PLAUSIBLE_MAX_BPM: f64 = 200.0;
+const BR_PLAUSIBLE_MIN_BPM: f64 = 8.0;
+const BR_PLAUSIBLE_MAX_BPM: f64 = 35.0;
+
 impl RadarState {
     fn note_hr(&mut self, v: f64) {
-        if v > 0.0 {
+        if (HR_PLAUSIBLE_MIN_BPM..=HR_PLAUSIBLE_MAX_BPM).contains(&v) {
             self.heart_rate_bpm = Some(v);
             self.held_hr = Some(v);
             self.held_at = Some(Instant::now());
         }
+        // Implausible: do not touch state. snapshot() will fall back to
+        // held_hr (within hold_max_age), then to None — preferable to
+        // surfacing 1-BPM noise while the radar is still settling.
     }
     fn note_br(&mut self, v: f64) {
-        if v > 0.0 {
+        if (BR_PLAUSIBLE_MIN_BPM..=BR_PLAUSIBLE_MAX_BPM).contains(&v) {
             self.breath_rate_bpm = Some(v);
             self.held_br = Some(v);
             self.held_at = Some(Instant::now());
@@ -626,5 +640,22 @@ mod tests {
         st.note_present(false); // simulates "no target" — clears live HR
         let snap = st.snapshot(Duration::from_secs(20));
         assert_eq!(snap.heart_rate_bpm, 72.0); // held value still surfaces
+    }
+
+    #[test]
+    fn implausible_vitals_are_filtered_at_the_bridge() {
+        let mut st = RadarState::default();
+        // Seed a known-good value first.
+        st.note_br(15.0);
+        // Radar then emits a "settling" 4 BPM — must NOT replace the good one.
+        st.note_br(4.0);
+        let snap = st.snapshot(Duration::from_secs(20));
+        assert_eq!(snap.breath_rate_bpm, 15.0);
+
+        // Same for HR — bogus 28 BPM (well below resting floor) is ignored.
+        st.note_hr(72.0);
+        st.note_hr(28.0);
+        let snap = st.snapshot(Duration::from_secs(20));
+        assert_eq!(snap.heart_rate_bpm, 72.0);
     }
 }
