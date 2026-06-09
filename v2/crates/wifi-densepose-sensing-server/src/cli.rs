@@ -228,6 +228,31 @@ pub struct Args {
     /// meeting, bathroom, fall_risk, bed_exit, no_movement, multi_room.
     #[arg(long = "no-semantic", value_name = "PRIMITIVE")]
     pub no_semantic: Vec<String>,
+
+    // ─── C6 ESPHome radar bridge ───────────────────────────────────────────
+    /// Enable the ESP32-C6 + MR60BHA2 radar bridge. Setting this turns on the
+    /// HTTP fallback poller and (if `--c6-mqtt-host` is also set) the MQTT
+    /// subscriber. The bridge synthesises ADR-039 vitals packets to
+    /// `127.0.0.1:<--udp-port>` so the existing UDP receiver decodes them.
+    #[arg(long, env = "RUVIEW_C6_HOST", value_name = "HOST")]
+    pub c6_radar_host: Option<String>,
+
+    /// `node_id` stamped on outgoing radar vitals packets.
+    #[arg(long, env = "RUVIEW_C6_NODE_ID", default_value = "1")]
+    pub c6_radar_node_id: u8,
+
+    /// MQTT broker host (typically `127.0.0.1` if mosquitto runs on the Pi).
+    /// Leave unset to run HTTP-only mode.
+    #[arg(long, env = "RUVIEW_C6_MQTT_HOST", value_name = "HOST")]
+    pub c6_mqtt_host: Option<String>,
+
+    /// MQTT broker port.
+    #[arg(long, env = "RUVIEW_C6_MQTT_PORT", default_value = "1883")]
+    pub c6_mqtt_port: u16,
+
+    /// ESPHome `topic_prefix` for the C6 device.
+    #[arg(long, env = "RUVIEW_C6_MQTT_PREFIX", default_value = "ruview-c6-radar")]
+    pub c6_mqtt_topic_prefix: String,
 }
 
 #[cfg(test)]

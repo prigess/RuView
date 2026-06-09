@@ -1,0 +1,32 @@
+#!/bin/sh
+# ruview-sensing postrm — clean up after the package is removed or purged.
+set -e
+
+RUVIEW_USER="ruview"
+RUVIEW_GROUP="ruview"
+
+case "$1" in
+    remove)
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload >/dev/null 2>&1 || true
+        fi
+        ;;
+    purge)
+        if [ -d /run/systemd/system ]; then
+            systemctl disable ruview-sensing.service >/dev/null 2>&1 || true
+            systemctl daemon-reload >/dev/null 2>&1 || true
+        fi
+        # Remove runtime data only on purge — preserves recordings on plain remove.
+        rm -rf /var/lib/ruview /var/log/ruview /etc/ruview || true
+
+        if getent passwd "$RUVIEW_USER" >/dev/null; then
+            deluser --system "$RUVIEW_USER" >/dev/null 2>&1 || true
+        fi
+        if getent group "$RUVIEW_GROUP" >/dev/null; then
+            delgroup --system "$RUVIEW_GROUP" >/dev/null 2>&1 || true
+        fi
+        ;;
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear) ;;
+    *) echo "postrm called with unknown argument: $1" >&2 ; exit 1 ;;
+esac
+exit 0

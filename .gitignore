@@ -272,3 +272,8 @@ v2/crates/rvcsi-node/npm/
 v2/data/recordings/
 v2/data/config.json
 v2/data/*.bin
+
+# ESPHome local secrets (WiFi creds, API keys, OTA password)
+firmware/esphome/secrets.yaml
+firmware/esphome/.esphome/
+firmware/esphome/build/

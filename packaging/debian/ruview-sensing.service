@@ -1,0 +1,41 @@
+[Unit]
+Description=RuView WiFi-CSI Sensing Server
+Documentation=https://github.com/ruvnet/RuView
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Currently root for /dev/rknpu0 + raw socket access. Drop privileges later
+# (User=ruview Group=ruview) once NPU permissions and capabilities are
+# audited (see TODO in ADR notes).
+User=root
+WorkingDirectory=/var/lib/ruview
+
+# Config: user-editable env file. Restart the unit after edits.
+EnvironmentFile=-/etc/ruview/sensing.conf
+
+# Lightweight per-boot NPU check (creates /dev/rknpu0 if missing).
+ExecStartPre=-/usr/lib/ruview/init-npu.sh
+
+ExecStart=/usr/bin/sensing-server \
+    --bind-addr ${RUVIEW_BIND_ADDR} \
+    --source ${RUVIEW_SOURCE} \
+    --udp-port ${RUVIEW_UDP_PORT} \
+    --http-port ${RUVIEW_HTTP_PORT} \
+    --ws-port ${RUVIEW_WS_PORT} \
+    --tick-ms ${RUVIEW_TICK_MS} \
+    --ui-path /usr/share/ruview/ui
+
+Restart=on-failure
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+
+# Resource hygiene
+LimitNOFILE=65535
+TasksMax=4096
+
+[Install]
+WantedBy=multi-user.target

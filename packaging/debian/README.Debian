@@ -1,0 +1,53 @@
+ruview-sensing for Debian / Ubuntu (Orange Pi 5 Pro)
+=====================================================
+
+This is a self-contained POC package. It includes:
+
+  /usr/bin/sensing-server                  prebuilt aarch64 binary
+  /usr/share/ruview/ui/                    observatory web UI (HTML/JS/CSS)
+  /usr/src/ruview/v2/                      Rust workspace source (for rebuild)
+  /usr/lib/ruview/init-npu.sh              per-boot NPU node check
+  /usr/lib/ruview/rebuild.sh               rebuild sensing-server from source
+  /usr/lib/ruview/setup-npu-orangepi.sh    one-time NPU runtime install
+  /lib/systemd/system/ruview-sensing.service
+  /etc/ruview/sensing.conf                 user-editable config (conffile)
+  /var/lib/ruview/                         recordings, calibration baseline
+  /var/log/ruview/                         legacy log dir (journal is canonical)
+
+Service management
+------------------
+  systemctl status   ruview-sensing
+  systemctl restart  ruview-sensing
+  systemctl stop     ruview-sensing
+  journalctl -u ruview-sensing -f
+
+Endpoints (defaults)
+--------------------
+  http://<host>:3022/health                 health probe
+  http://<host>:3022/api/v1/sensing/latest  one-shot REST snapshot
+  http://<host>:3022/ui/                    observatory web UI
+  ws://<host>:3023/ws/sensing               live snapshot stream (10 Hz)
+  udp://<host>:5005                         ESP32 CSI ingress
+
+Configuration
+-------------
+Edit /etc/ruview/sensing.conf and `systemctl restart ruview-sensing`.
+Common knobs: RUVIEW_SOURCE (esp32|simulate|file), HTTP/WS/UDP ports,
+RUVIEW_USE_NPU (1|0), RUST_LOG (info|debug|trace).
+
+Rebuilding from source on-device (POC)
+--------------------------------------
+The Rust workspace is bundled at /usr/src/ruview/v2 so the binary can be
+rebuilt without re-downloading anything. You need cargo (rustup) installed:
+
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+  source "$HOME/.cargo/env"
+  sudo /usr/lib/ruview/rebuild.sh
+
+That rebuilds, installs to /usr/bin/sensing-server, and restarts the service.
+
+Upgrading via OTA
+-----------------
+Future work — a separate ruview-ota-agent package will poll an HTTPS
+manifest, verify a signed .deb checksum, and run `apt install` atomically.
+See packaging/OTA.md (TBD).

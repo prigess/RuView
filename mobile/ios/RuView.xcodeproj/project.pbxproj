@@ -21,6 +21,7 @@
 		A112 /* TrainingWizardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A012 /* TrainingWizardView.swift */; };
 		A113 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A015 /* DesignSystem.swift */; };
 		A114 /* AboutSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A016 /* AboutSheetView.swift */; };
+		A115 /* C6RadarClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A017 /* C6RadarClient.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -40,6 +41,7 @@
 		A014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A015 /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
 		A016 /* AboutSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutSheetView.swift; sourceTree = "<group>"; };
+		A017 /* C6RadarClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = C6RadarClient.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -87,6 +89,7 @@
 			isa = PBXGroup;
 			children = (
 				A003 /* RuViewClient.swift */,
+				A017 /* C6RadarClient.swift */,
 			);
 			path = Networking;
 			sourceTree = "<group>";
@@ -205,6 +208,7 @@
 				A112 /* TrainingWizardView.swift in Sources */,
 				A113 /* DesignSystem.swift in Sources */,
 				A114 /* AboutSheetView.swift in Sources */,
+				A115 /* C6RadarClient.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

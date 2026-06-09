@@ -208,6 +208,31 @@ struct Args {
     /// `GET /api/v1/edge/registry`. Use for air-gapped deployments.
     #[arg(long, env = "RUVIEW_NO_EDGE_REGISTRY")]
     no_edge_registry: bool,
+
+    // ─── C6 ESPHome radar bridge ───────────────────────────────────────────
+    /// Enable the ESP32-C6 + MR60BHA2 radar bridge. Setting this turns on the
+    /// HTTP fallback poller and (if `--c6-mqtt-host` is also set) the MQTT
+    /// subscriber. The bridge synthesises ADR-039 vitals packets to
+    /// `127.0.0.1:<--udp-port>` so the existing UDP receiver decodes them.
+    #[arg(long, env = "RUVIEW_C6_HOST", value_name = "HOST")]
+    c6_radar_host: Option<String>,
+
+    /// `node_id` stamped on outgoing radar vitals packets.
+    #[arg(long, env = "RUVIEW_C6_NODE_ID", default_value = "1")]
+    c6_radar_node_id: u8,
+
+    /// MQTT broker host (typically `127.0.0.1` if mosquitto runs on the Pi).
+    /// Leave unset to run HTTP-only mode.
+    #[arg(long, env = "RUVIEW_C6_MQTT_HOST", value_name = "HOST")]
+    c6_mqtt_host: Option<String>,
+
+    /// MQTT broker port.
+    #[arg(long, env = "RUVIEW_C6_MQTT_PORT", default_value = "1883")]
+    c6_mqtt_port: u16,
+
+    /// ESPHome `topic_prefix` for the C6 device.
+    #[arg(long, env = "RUVIEW_C6_MQTT_PREFIX", default_value = "ruview-c6-radar")]
+    c6_mqtt_topic_prefix: String,
 }
 
 // ── Data types ───────────────────────────────────────────────────────────────
@@ -6188,6 +6213,31 @@ async fn main() {
         _ => {
             tokio::spawn(simulated_data_task(state.clone(), args.tick_ms));
         }
+    }
+
+    // C6 ESPHome radar bridge — MQTT primary, HTTP fallback.
+    // The bridge synthesises 32-byte ADR-039 vitals packets and emits them to
+    // 127.0.0.1:<udp_port>. That requires the UDP receiver to be running,
+    // so we spawn it here too even when --source is not `esp32`.
+    if let Some(http_host) = args.c6_radar_host.clone() {
+        if !matches!(source, "esp32") {
+            info!("C6 bridge enabled: starting UDP receiver + broadcast tick (source={source})");
+            tokio::spawn(udp_receiver_task(state.clone(), args.udp_port));
+            tokio::spawn(broadcast_tick_task(state.clone(), args.tick_ms));
+        }
+        let mut cfg = wifi_densepose_sensing_server::c6_radar_bridge::C6RadarConfig::http_only(
+            http_host,
+            args.udp_port,
+        );
+        cfg.node_id = args.c6_radar_node_id;
+        if let Some(mqtt_host) = args.c6_mqtt_host.clone() {
+            cfg = cfg.with_mqtt(
+                mqtt_host,
+                args.c6_mqtt_port,
+                args.c6_mqtt_topic_prefix.clone(),
+            );
+        }
+        wifi_densepose_sensing_server::c6_radar_bridge::spawn(cfg);
     }
 
     // ADR-050: Parse bind address once, use for all listeners

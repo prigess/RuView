@@ -15,8 +15,19 @@ struct VitalSignsView: View {
                     SectionHeader(title: "Vital Signs", trailing: liveTimestamp)
                     heartRateCard(vitals: vitals)
                     breathingCard(vitals: vitals)
+
+                    if viewModel.radarReachable {
+                        SectionHeader(title: "60 GHz Radar (Node 7)")
+                        radarCard
+                    }
+
                     SectionHeader(title: "Signal")
                     signalQualityCard(vitals: vitals)
+                    disclaimerFooter
+                } else if viewModel.radarReachable {
+                    // CSI snapshot not flowing, but radar is — still useful for the demo.
+                    SectionHeader(title: "60 GHz Radar (Node 7)")
+                    radarCard
                     disclaimerFooter
                 } else {
                     noDataCard
@@ -124,6 +135,113 @@ struct VitalSignsView: View {
             status: status,
             trend: viewModel.breathingTrend()
         )
+    }
+
+    // MARK: - 60GHz Radar (ESP32-C6 + MR60BHA2, polled directly)
+
+    private var radarCard: some View {
+        let r = viewModel.radarReading
+        let present = r?.personPresent ?? false
+        let hr = r?.heartRateBpm
+        let br = r?.breathingRateBpm
+        let dist = r?.targetDistanceCm
+
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(.steel)
+                Text("60 GHz mmWave radar")
+                    .font(.subheadline).fontWeight(.semibold)
+                    .foregroundColor(.healthText)
+                Spacer()
+                presenceChip(present: present)
+            }
+
+            HStack(spacing: 14) {
+                radarMetric(
+                    icon: "heart.fill", color: .heartRed,
+                    label: "Heart", value: bpmText(hr), unit: "BPM"
+                )
+                radarMetric(
+                    icon: "lungs.fill", color: .lungTeal,
+                    label: "Breath", value: bpmText(br), unit: "BPM"
+                )
+                radarMetric(
+                    icon: "ruler", color: .steel,
+                    label: "Range", value: distanceText(dist), unit: "cm"
+                )
+            }
+
+            if let r {
+                Text("Updated \(ageString(r.timestamp)) ago")
+                    .font(.caption2)
+                    .foregroundColor(.healthSub)
+            }
+        }
+        .ruCard()
+    }
+
+    private func presenceChip(present: Bool) -> some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(present ? Color.green : Color.healthSub.opacity(0.5))
+                .frame(width: 7, height: 7)
+            Text(present ? "Person detected" : "No target")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(present ? .green : .healthSub)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .background((present ? Color.green : Color.healthSub).opacity(0.10))
+        .cornerRadius(6)
+    }
+
+    private func radarMetric(icon: String, color: Color, label: String, value: String, unit: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(color)
+                Text(label)
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundColor(.healthSub)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(value)
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(.healthText)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                if value != "–" {
+                    Text(unit)
+                        .font(.caption2).fontWeight(.medium)
+                        .foregroundColor(.healthSub)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(Color.steelPale.opacity(0.6))
+        .cornerRadius(10)
+    }
+
+    private func bpmText(_ v: Double?) -> String {
+        guard let v, v > 0 else { return "–" }
+        return "\(Int(v.rounded()))"
+    }
+
+    private func distanceText(_ v: Double?) -> String {
+        guard let v, v > 0 else { return "–" }
+        return "\(Int(v.rounded()))"
+    }
+
+    private func ageString(_ t: Date) -> String {
+        let secs = Int(Date().timeIntervalSince(t))
+        if secs <= 1 { return "just now" }
+        if secs < 60 { return "\(secs)s" }
+        return "\(secs / 60)m"
     }
 
     // MARK: - Signal quality

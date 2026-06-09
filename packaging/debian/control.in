@@ -1,0 +1,23 @@
+Package: ruview-sensing
+Version: @VERSION@-1
+Section: net
+Priority: optional
+Architecture: arm64
+Maintainer: RuView Team <maintainers@ruview.local>
+Homepage: https://github.com/ruvnet/RuView
+Depends: libc6 (>= 2.31), systemd | systemd-sysv, libssl3 | libssl1.1, ca-certificates
+Recommends: build-essential, curl, pkg-config
+Suggests: librknnrt | rknpu2-runtime
+Installed-Size: @INSTALLED_SIZE@
+Description: RuView WiFi-CSI sensing server for Orange Pi
+ RuView turns commodity WiFi Channel State Information (CSI) into
+ occupancy, motion, and vital-sign estimates. This package provides the
+ sensing-server daemon plus the observatory web UI for the Orange Pi
+ 5 Pro (RK3588) reference platform.
+ .
+ The package is self-contained for POC use: it ships the prebuilt
+ binary AND the v2 Rust workspace source under /usr/src/ruview/, so
+ the binary can be rebuilt on-device with /usr/lib/ruview/rebuild.sh
+ when a Rust toolchain is installed.
+ .
+ REST API at :3022, WebSocket at :3023, UI at http://<host>:3022/ui/.

@@ -26,7 +26,13 @@ static struct sockaddr_in s_dest_addr;
  * rapid-fire CSI callbacks can exhaust the pbuf pool and crash the device.
  */
 static int64_t s_backoff_until_us = 0;       /* esp_timer timestamp to resume */
-#define ENOMEM_COOLDOWN_MS  100              /* suppress sends for 100 ms */
+#define ENOMEM_COOLDOWN_MS  300              /* suppress sends for 300 ms.
+                                              * Was 100 ms; at the new 10 Hz send rate
+                                              * (csi_collector.c CSI_MIN_SEND_INTERVAL_US)
+                                              * the pbuf pool needs longer to drain when
+                                              * marginal RF causes 802.11 retries to back
+                                              * up. 300 ms ≈ 3 send intervals — gives the
+                                              * stack a real chance to recover. */
 #define ENOMEM_LOG_INTERVAL 50               /* log every Nth suppressed send */
 static uint32_t s_enomem_suppressed = 0;
 

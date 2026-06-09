@@ -1,0 +1,69 @@
+#!/bin/sh
+# ruview-sensing postinst — runs after package files are unpacked.
+set -e
+
+RUVIEW_USER="ruview"
+RUVIEW_GROUP="ruview"
+RUVIEW_DATA="/var/lib/ruview"
+RUVIEW_LOG="/var/log/ruview"
+
+case "$1" in
+    configure)
+        # 1. Create a system user for the service if missing.
+        if ! getent group "$RUVIEW_GROUP" >/dev/null; then
+            addgroup --system "$RUVIEW_GROUP"
+        fi
+        if ! getent passwd "$RUVIEW_USER" >/dev/null; then
+            adduser --system --ingroup "$RUVIEW_GROUP" \
+                --home "$RUVIEW_DATA" \
+                --shell /usr/sbin/nologin \
+                --gecos "RuView sensing service" \
+                "$RUVIEW_USER"
+        fi
+
+        # Service currently runs as root for /dev/rknpu0 access; the user
+        # exists as an option for future privilege-drop work (ADR pending).
+
+        # 2. Data + log directories.
+        install -d -m 0755 "$RUVIEW_DATA"
+        install -d -m 0755 "$RUVIEW_DATA/recordings"
+        install -d -m 0755 "$RUVIEW_DATA/calibration"
+        install -d -m 0755 "$RUVIEW_LOG"
+
+        # 3. Make rebuild helpers executable.
+        for f in /usr/lib/ruview/init-npu.sh /usr/lib/ruview/rebuild.sh \
+                 /usr/lib/ruview/setup-npu-orangepi.sh ; do
+            [ -f "$f" ] && chmod 0755 "$f" || true
+        done
+
+        # 4. NPU one-time setup (idempotent).
+        if [ -x /usr/lib/ruview/setup-npu-orangepi.sh ]; then
+            echo "[ruview-sensing] running one-time NPU setup..."
+            /usr/lib/ruview/setup-npu-orangepi.sh || \
+                echo "[ruview-sensing] WARNING: NPU setup non-fatal failure; service will still start without NPU acceleration."
+        fi
+
+        # 5. Reload systemd, enable and (re)start the service.
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload
+            systemctl enable ruview-sensing.service >/dev/null 2>&1 || true
+            if systemctl is-active --quiet ruview-sensing.service; then
+                systemctl restart ruview-sensing.service
+            else
+                systemctl start ruview-sensing.service || \
+                    echo "[ruview-sensing] WARNING: failed to start service; check 'journalctl -u ruview-sensing'."
+            fi
+        else
+            echo "[ruview-sensing] systemd not running in chroot; skipping service start."
+        fi
+
+        echo "[ruview-sensing] installed successfully."
+        echo "  Status : systemctl status ruview-sensing"
+        echo "  Logs   : journalctl -u ruview-sensing -f"
+        echo "  Config : /etc/ruview/sensing.conf  (restart after edits)"
+        echo "  REST   : http://$(hostname -I | awk '{print $1}'):3022/health"
+        ;;
+    abort-upgrade|abort-remove|abort-deconfigure) ;;
+    *) echo "postinst called with unknown argument: $1" >&2 ; exit 1 ;;
+esac
+exit 0

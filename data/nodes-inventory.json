@@ -1,0 +1,55 @@
+{
+  "_comment": "Hardware inventory of ESP32-S3 sensing nodes. Source of truth for node_id ↔ MAC ↔ position. IPs may change with DHCP; that is intentional — node_id (provisioned into NVS) is the canonical identity used by the sensing-server.",
+  "_updated": "2026-06-07",
+  "network": {
+    "ssid": "Firefly",
+    "target_server": "192.168.7.205",
+    "target_port": 5005
+  },
+  "nodes": {
+    "1": {
+      "chip": "esp32s3",
+      "mac": "e0:72:a1:d5:1d:4c",
+      "position": "west",
+      "last_seen_ip": "192.168.7.152",
+      "wifi_bssid": "14:22:db:bc:54:a6",
+      "provisioned": "2026-06-07",
+      "notes": "Re-provisioned 2026-06-07 from USB Port A (5B7A0773891)."
+    },
+    "2": {
+      "chip": "esp32s3",
+      "mac": "e0:72:a1:db:59:34",
+      "position": "north",
+      "last_seen_ip": "192.168.7.189",
+      "wifi_bssid": "14:22:db:bc:7b:e6",
+      "provisioned": "2026-06-07",
+      "notes": "Re-provisioned 2026-06-07 from USB Port B (5B7B0511421)."
+    },
+    "3": {
+      "chip": "esp32s3",
+      "mac": "44:1b:f6:84:20:74",
+      "position": "east",
+      "last_seen_ip": "192.168.7.150",
+      "wifi_bssid": "14:22:db:bc:54:a6",
+      "provisioned": "2026-06-07",
+      "notes": "Provisioned 2026-06-07 from USB Port C (5B7B0519241)."
+    },
+    "4": {
+      "chip": "esp32c6",
+      "mac": "58:e6:c5:19:a4:40",
+      "position": "south",
+      "last_seen_ip": "192.168.7.223",
+      "wifi_bssid": null,
+      "provisioned": null,
+      "active": false,
+      "removed_at": "2026-06-07",
+      "notes": "REMOVED 2026-06-07. ESP32-C6 (RISC-V) previously occupied the south position; it has been physically taken out of the deployment. The iOS app and Pi ip-map no longer expect a south node. Restore this entry, the iOS expectedRoster south row, and the Pi ip-map node id=4 entry when a south node is added back. scripts/reprovision-node7-to-node4.sh is preserved for that future use."
+    }
+  },
+  "spare": {
+    "_comment": "USB-to-serial chip IDs of the three currently-tethered nodes — for re-locating them physically.",
+    "5B7A0773891": "Node 1 (e0:72:a1:d5:1d:4c)",
+    "5B7B0511421": "Node 2 (e0:72:a1:db:59:34)",
+    "5B7B0519241": "Node 3 (44:1b:f6:84:20:74)"
+  }
+}

@@ -10,6 +10,18 @@ final class SensingViewModel: ObservableObject {
     // MARK: - The underlying client (exposed for direct use in wizard)
     let client: RuViewClient
 
+    // MARK: - C6 60GHz radar (direct ESPHome poller)
+    let radarClient: C6RadarClient
+    @Published var radarReading: C6RadarReading?
+    @Published var radarReachable: Bool = false
+
+    /// IP address of the ESP32-C6 ESPHome node. Defaults to the lab device.
+    /// Stored in UserDefaults under "c6RadarHost" so a future settings screen
+    /// can edit it without changing this class.
+    private var c6RadarHost: String {
+        UserDefaults.standard.string(forKey: "c6RadarHost") ?? "192.168.7.223"
+    }
+
     // MARK: - Published state mirrored from client
     @Published var snapshot: SensingSnapshot?
     @Published var isConnected: Bool = false
@@ -94,7 +106,20 @@ final class SensingViewModel: ObservableObject {
 
     init() {
         self.client = RuViewClient()
+        self.radarClient = C6RadarClient()
         bindClientPublishers()
+        bindRadarPublishers()
+    }
+
+    // Mirror the radar client's published state onto this view model so views
+    // bound to `viewModel` re-render when the radar reading changes.
+    private func bindRadarPublishers() {
+        radarClient.$reading
+            .receive(on: RunLoop.main)
+            .assign(to: &$radarReading)
+        radarClient.$isReachable
+            .receive(on: RunLoop.main)
+            .assign(to: &$radarReachable)
     }
 
     // MARK: - Binding via Combine sinks
@@ -161,17 +186,21 @@ final class SensingViewModel: ObservableObject {
     func connect(host: String) {
         client.connect(host: host)
         startPolling()
+        radarClient.start(host: c6RadarHost)
     }
 
     func disconnect() {
         disconnectGraceTask?.cancel()
         showDisconnectedBanner = false
         client.disconnect()
+        radarClient.stop()
         stopPolling()
         nodes = []
         zones = []
         adaptiveStatus = nil
         calibrationStatus = nil
+        radarReading = nil
+        radarReachable = false
         isConnected = false
         connectionError = nil
         isSignalLost = false

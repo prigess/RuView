@@ -33,13 +33,35 @@ static uint32_t s_send_ok = 0;
 static uint32_t s_send_fail = 0;
 static uint32_t s_rate_skip = 0;
 
+/* Cached mirrors of g_nvs_config fields, refreshed by csi_collector_init().
+ * Kept as file-scope statics so the CSI callback (called from the WiFi task
+ * context) doesn't have to chase pointers / sync with the NVS config update
+ * thread. Restored 2026-06-07 — accidentally removed in 4a2d1c34, breaking
+ * compilation of references at lines 286, 324, 343, 347. */
+static uint8_t s_node_id           = 1;     /* mirror of g_nvs_config.node_id */
+static bool    s_node_id_early_set = false; /* true once set during early init */
+static uint8_t s_filter_mac[6]     = {0};   /* mirror of g_nvs_config.filter_mac */
+static bool    s_filter_mac_set    = false; /* true once filter_mac has been loaded */
+
 /**
  * Minimum interval between UDP sends in microseconds.
  * CSI callbacks can fire hundreds of times per second in promiscuous mode.
- * We cap the send rate to avoid exhausting lwIP packet buffers (ENOMEM).
- * Default: 20 ms = 50 Hz max send rate.
+ * We cap the send rate to avoid exhausting lwIP packet buffers (ENOMEM)
+ * AND to give the 802.11 MAC enough headroom for retries at marginal signal.
+ *
+ * Default: 100 ms = 10 Hz max send rate.
+ *
+ * Rationale: the sensing-server runs at --tick-ms 100, so it only consumes
+ * snapshots at 10 Hz. Sending at 50 Hz wasted ~80% of frames AND made the
+ * WiFi MAC saturate at marginal RSSI (-75 dBm and below), causing silent
+ * tail drops with no sendto error visible at the application. With 10 Hz
+ * each packet has 5× the time for 802.11 retries and the duty cycle is low
+ * enough that two or three nodes can share the same channel without
+ * starving each other.
+ *
+ * Previous: 20 * 1000 (50 Hz) — caused dropouts at -75 dBm+.
  */
-#define CSI_MIN_SEND_INTERVAL_US  (20 * 1000)
+#define CSI_MIN_SEND_INTERVAL_US  (100 * 1000)
 static int64_t s_last_send_us = 0;
 
 /* ---- ADR-029: Channel-hop state ---- */
@@ -224,8 +246,14 @@ static void wifi_csi_callback(void *ctx, wifi_csi_info_t *info)
                 s_last_send_us = now;
             } else {
                 s_send_fail++;
-                if (s_send_fail <= 5) {
-                    ESP_LOGW(TAG, "sendto failed (fail #%lu)", (unsigned long)s_send_fail);
+                /* Log every 100th failure (in addition to the first 5) so
+                 * we keep visibility on sustained failure modes, not just
+                 * boot-time hiccups. */
+                if (s_send_fail <= 5 || (s_send_fail % 100) == 0) {
+                    ESP_LOGW(TAG, "sendto failed (fail #%lu, ok=%lu, rate_skip=%lu)",
+                             (unsigned long)s_send_fail,
+                             (unsigned long)s_send_ok,
+                             (unsigned long)s_rate_skip);
                 }
             }
         } else {
