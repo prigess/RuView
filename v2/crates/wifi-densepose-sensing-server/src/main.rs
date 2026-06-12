@@ -233,6 +233,29 @@ struct Args {
     /// ESPHome `topic_prefix` for the C6 device.
     #[arg(long, env = "RUVIEW_C6_MQTT_PREFIX", default_value = "ruview-c6-radar")]
     c6_mqtt_topic_prefix: String,
+
+    // ─── ESP32-S3 + LD2410 radar bridge (Node 2 by default) ────────────────
+    /// Enable the ESP32-S3 + LD2410 radar bridge. Same ESPHome+MQTT path
+    /// as the C6 bridge, but uses LD2410 protocol topics and stamps
+    /// radar_type=2 (LD2410). Leave unset to disable.
+    #[arg(long, env = "RUVIEW_LD2410_HOST", value_name = "HOST")]
+    ld2410_radar_host: Option<String>,
+
+    /// `node_id` stamped on outgoing LD2410 vitals packets.
+    #[arg(long, env = "RUVIEW_LD2410_NODE_ID", default_value = "2")]
+    ld2410_radar_node_id: u8,
+
+    /// MQTT broker host for the LD2410 bridge.
+    #[arg(long, env = "RUVIEW_LD2410_MQTT_HOST", value_name = "HOST")]
+    ld2410_mqtt_host: Option<String>,
+
+    /// MQTT broker port for the LD2410 bridge.
+    #[arg(long, env = "RUVIEW_LD2410_MQTT_PORT", default_value = "1883")]
+    ld2410_mqtt_port: u16,
+
+    /// ESPHome `topic_prefix` for the LD2410 device.
+    #[arg(long, env = "RUVIEW_LD2410_MQTT_PREFIX", default_value = "ruview-s3-ld2410-n2")]
+    ld2410_mqtt_topic_prefix: String,
 }
 
 // ── Data types ───────────────────────────────────────────────────────────────
@@ -5392,30 +5415,41 @@ async fn simulated_data_task(state: SharedState, tick_ms: u64) {
 
 // ── Broadcast tick task (for ESP32 mode, sends buffered state) ───────────────
 
-/// `node_id` of the ESP32-C6 + MR60BHA2 radar (the south position).
-/// When fresh, the radar is the authoritative source for occupancy + presence —
-/// it sees breathing-rate-grade chest motion directly, whereas the CSI
-/// tracker hallucinates phantom persons from environmental noise.
-const C6_RADAR_NODE_ID: u8 = 4;
+/// `node_id`s of nodes whose `edge_vitals.presence` is authoritative for
+/// occupancy. Both the C6 + MR60BHA2 (Node 4) and the S3 + LD2410 (Node 2)
+/// are real radars — CSI heuristic node counts on the other slots
+/// hallucinate phantoms. If ANY radar reports presence=true, we take that
+/// as ground-truth occupancy=1; if all radars say absent, occupancy=0.
+const RADAR_NODE_IDS: &[u8] = &[4, 2];
 
-/// How long after the radar's last frame we still trust it as authoritative.
+/// How long after the last radar frame we still trust it as authoritative.
 /// Beyond this, fall back to the CSI/tracker estimate.
 const RADAR_AUTHORITATIVE_WINDOW: Duration = Duration::from_secs(5);
 
-/// If Node 4 (C6 radar) has fresh edge_vitals, return its person count as the
-/// canonical value; otherwise return `None` and the caller should fall back to
-/// whatever the CSI pipeline produced. The radar's `n_persons` is clamped to
-/// {0, 1} because the MR60BHA2 is a single-target FMCW sensor — if the
-/// firmware ever reports >1 it's almost certainly side-lobe junk.
+/// If any registered radar node has fresh edge_vitals, return its person
+/// count as the canonical value; otherwise return `None` and the caller
+/// should fall back to whatever the CSI pipeline produced. Radars are
+/// single-target — `n_persons` is clamped to {0, 1} per radar, and the
+/// max across radars is used (so an LD2410 catching someone the MR60
+/// missed, or vice versa, still surfaces as "1 person").
 fn radar_authoritative_person_count(state: &AppStateInner) -> Option<usize> {
-    let node = state.node_states.get(&C6_RADAR_NODE_ID)?;
-    let last = node.last_frame_time?;
-    if std::time::Instant::now().duration_since(last) > RADAR_AUTHORITATIVE_WINDOW {
-        return None;
+    let now = std::time::Instant::now();
+    let mut any_fresh = false;
+    let mut any_present = false;
+    for &id in RADAR_NODE_IDS {
+        let Some(node) = state.node_states.get(&id) else { continue };
+        let Some(last) = node.last_frame_time else { continue };
+        if now.duration_since(last) > RADAR_AUTHORITATIVE_WINDOW { continue; }
+        any_fresh = true;
+        if let Some(vitals) = node.edge_vitals.as_ref() {
+            if vitals.presence {
+                any_present = true;
+                break; // one true is enough
+            }
+        }
     }
-    let vitals = node.edge_vitals.as_ref()?;
-    let count = if vitals.presence { 1 } else { 0 };
-    Some(count)
+    if !any_fresh { return None; }
+    Some(if any_present { 1 } else { 0 })
 }
 
 /// Apply the radar-takes-precedence override to a SensingUpdate that's about
@@ -6276,26 +6310,49 @@ async fn main() {
         }
     }
 
-    // C6 ESPHome radar bridge — MQTT primary, HTTP fallback.
-    // The bridge synthesises 32-byte ADR-039 vitals packets and emits them to
+    // ESPHome radar bridges — MQTT primary, HTTP fallback. Each instance
+    // synthesises 32-byte ADR-039 vitals packets and emits them to
     // 127.0.0.1:<udp_port>. That requires the UDP receiver to be running,
     // so we spawn it here too even when --source is not `esp32`.
+    let any_radar_bridge =
+        args.c6_radar_host.is_some() || args.ld2410_radar_host.is_some();
+    if any_radar_bridge && !matches!(source, "esp32") {
+        info!("Radar bridge(s) enabled: starting UDP receiver + broadcast tick (source={source})");
+        tokio::spawn(udp_receiver_task(state.clone(), args.udp_port));
+        tokio::spawn(broadcast_tick_task(state.clone(), args.tick_ms));
+    }
+
+    // C6 + MR60BHA2 (Node 4 by default — south radar with vital signs)
     if let Some(http_host) = args.c6_radar_host.clone() {
-        if !matches!(source, "esp32") {
-            info!("C6 bridge enabled: starting UDP receiver + broadcast tick (source={source})");
-            tokio::spawn(udp_receiver_task(state.clone(), args.udp_port));
-            tokio::spawn(broadcast_tick_task(state.clone(), args.tick_ms));
-        }
         let mut cfg = wifi_densepose_sensing_server::c6_radar_bridge::C6RadarConfig::http_only(
             http_host,
             args.udp_port,
         );
         cfg.node_id = args.c6_radar_node_id;
+        cfg.radar_type = wifi_densepose_sensing_server::c6_radar_bridge::RADAR_TYPE_MR60BHA2;
         if let Some(mqtt_host) = args.c6_mqtt_host.clone() {
             cfg = cfg.with_mqtt(
                 mqtt_host,
                 args.c6_mqtt_port,
                 args.c6_mqtt_topic_prefix.clone(),
+            );
+        }
+        wifi_densepose_sensing_server::c6_radar_bridge::spawn(cfg);
+    }
+
+    // S3 + LD2410 (Node 2 by default — long-range presence/range)
+    if let Some(http_host) = args.ld2410_radar_host.clone() {
+        let mut cfg = wifi_densepose_sensing_server::c6_radar_bridge::C6RadarConfig::http_only(
+            http_host,
+            args.udp_port,
+        );
+        cfg.node_id = args.ld2410_radar_node_id;
+        cfg.radar_type = wifi_densepose_sensing_server::c6_radar_bridge::RADAR_TYPE_LD2410;
+        if let Some(mqtt_host) = args.ld2410_mqtt_host.clone() {
+            cfg = cfg.with_mqtt(
+                mqtt_host,
+                args.ld2410_mqtt_port,
+                args.ld2410_mqtt_topic_prefix.clone(),
             );
         }
         wifi_densepose_sensing_server::c6_radar_bridge::spawn(cfg);

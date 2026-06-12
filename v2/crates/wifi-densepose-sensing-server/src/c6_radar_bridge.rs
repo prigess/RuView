@@ -31,17 +31,26 @@ use tracing::{debug, info, warn};
 /// Magic word of the `Esp32VitalsPacket` (ADR-039).
 const VITALS_MAGIC: u32 = 0xC511_0002;
 
-/// Radar type code stored in byte 14.
-const RADAR_TYPE_MR60BHA2: u8 = 1;
+/// Radar type codes stored in byte 14 of the vitals packet. Mirrors the
+/// mmwave_type_t enum in firmware/esp32-csi-node/main/mmwave_sensor.h.
+pub const RADAR_TYPE_MR60BHA2: u8 = 1;
+pub const RADAR_TYPE_LD2410: u8 = 2;
 
-/// Configuration for the C6 ESPHome bridge.
+/// Configuration for one ESPHome radar bridge instance. The module supports
+/// running multiple instances simultaneously (e.g., one for the C6/MR60BHA2,
+/// one for an S3/LD2410), each with its own topic_prefix and node_id.
 #[derive(Debug, Clone)]
 pub struct C6RadarConfig {
     /// IP or hostname of the ESPHome device (no scheme, no port). Used as the
     /// HTTP fallback target.
     pub http_host: String,
-    /// `node_id` stamped on outgoing vitals packets. Default 1.
+    /// `node_id` stamped on outgoing vitals packets.
     pub node_id: u8,
+    /// Radar type code stamped in byte 14 of the vitals packet
+    /// (RADAR_TYPE_MR60BHA2 or RADAR_TYPE_LD2410). Determines which set of
+    /// MQTT topics the subscriber recognises (HR/BR for MR60 vs.
+    /// moving/still distance for LD2410).
+    pub radar_type: u8,
     /// Local UDP port the sensing-server listens on; packets are sent to
     /// `127.0.0.1:<this>` so the existing receiver picks them up.
     pub udp_port: u16,
@@ -65,6 +74,7 @@ impl C6RadarConfig {
         Self {
             http_host,
             node_id: 1,
+            radar_type: RADAR_TYPE_MR60BHA2,
             udp_port,
             mqtt_host: None,
             mqtt_port: 1883,
@@ -79,6 +89,11 @@ impl C6RadarConfig {
         self.mqtt_host = Some(mqtt_host);
         self.mqtt_port = mqtt_port;
         self.mqtt_topic_prefix = topic_prefix;
+        self
+    }
+
+    pub fn with_radar_type(mut self, radar_type: u8) -> Self {
+        self.radar_type = radar_type;
         self
     }
 }
@@ -274,8 +289,15 @@ fn http_get_bool(agent: &ureq::Agent, base: &str, path: &str) -> Result<Option<b
 // ─── Packet encoding ────────────────────────────────────────────────────────
 
 /// Build a 32-byte ADR-039 edge-vitals packet from a radar snapshot.
-/// Layout mirrors `parse_esp32_vitals` in `main.rs`.
-fn encode_vitals_packet(node_id: u8, s: &RadarSnapshot, timestamp_ms: u32) -> [u8; 32] {
+/// Layout mirrors `parse_esp32_vitals` in `main.rs`. `radar_type` is
+/// parameterised so the same bridge can carry MR60BHA2 (vitals) or LD2410
+/// (presence + range only) data — only byte 14 changes.
+fn encode_vitals_packet(
+    node_id: u8,
+    radar_type: u8,
+    s: &RadarSnapshot,
+    timestamp_ms: u32,
+) -> [u8; 32] {
     let mut buf = [0u8; 32];
     buf[0..4].copy_from_slice(&VITALS_MAGIC.to_le_bytes());
     buf[4] = node_id;
@@ -300,7 +322,7 @@ fn encode_vitals_packet(node_id: u8, s: &RadarSnapshot, timestamp_ms: u32) -> [u
 
     buf[12] = s.rssi_dbm as u8;
     buf[13] = s.n_persons;
-    buf[14] = RADAR_TYPE_MR60BHA2;
+    buf[14] = radar_type;
     buf[15] = if s.present { 1 } else { 0 };
 
     buf[16..20].copy_from_slice(&s.motion_energy.to_le_bytes());
@@ -310,20 +332,28 @@ fn encode_vitals_packet(node_id: u8, s: &RadarSnapshot, timestamp_ms: u32) -> [u
     buf
 }
 
-fn emit(socket: &UdpSocket, dest: &str, node_id: u8, snap: &RadarSnapshot, start: Instant) {
+fn emit(
+    socket: &UdpSocket,
+    dest: &str,
+    node_id: u8,
+    radar_type: u8,
+    snap: &RadarSnapshot,
+    start: Instant,
+) {
     let ts = (Instant::now().duration_since(start).as_millis() as u32).max(1);
-    let pkt = encode_vitals_packet(node_id, snap, ts);
+    let pkt = encode_vitals_packet(node_id, radar_type, snap, ts);
     match socket.send_to(&pkt, dest) {
         Ok(_) => debug!(
-            "C6 → UDP: node={} present={} hr={:.1} br={:.1} dist={}cm rssi={}",
+            "radar → UDP: node={} type={} present={} hr={:.1} br={:.1} dist={}cm rssi={}",
             node_id,
+            radar_type,
             snap.present,
             snap.heart_rate_bpm,
             snap.breath_rate_bpm,
             snap.target_distance_cm,
             snap.rssi_dbm
         ),
-        Err(e) => warn!("C6 bridge: UDP send to {dest} failed: {e}"),
+        Err(e) => warn!("radar bridge (node={node_id}): UDP send to {dest} failed: {e}"),
     }
 }
 
@@ -421,7 +451,7 @@ fn mqtt_loop(cfg: C6RadarConfig, state: Arc<Mutex<RadarState>>, start: Instant) 
                         Some(st.snapshot(Duration::from_secs(20)))
                     };
                     if let Some(snap) = snap_for_emit {
-                        emit(&socket, &dest, cfg.node_id, &snap, start);
+                        emit(&socket, &dest, cfg.node_id, cfg.radar_type, &snap, start);
                     }
                 }
                 Ok(_) => { /* ping, suback, etc. — ignore */ }
@@ -470,6 +500,27 @@ fn apply_mqtt_message(prefix: &str, topic: &str, payload: &str, st: &mut RadarSt
         "binary_sensor/person_present/state" => {
             let present = matches!(payload_trim.to_ascii_uppercase().as_str(), "ON" | "TRUE" | "1");
             st.note_present(present);
+        }
+
+        // ─── LD2410-specific topics (no HR/BR; range comes from multiple
+        // fields, and presence has a more granular moving/still split). ──
+        "sensor/moving_distance/state"
+        | "sensor/still_distance/state"
+        | "sensor/detection_distance/state" => {
+            if let Ok(v) = payload_trim.parse::<f64>() {
+                // Any distance reading is usable; prefer the most recent one.
+                st.note_dist(v.clamp(0.0, 65535.0) as u16);
+            }
+        }
+        "binary_sensor/moving_target_present/state"
+        | "binary_sensor/still_target_present/state" => {
+            // Either moving or still target counts as "presence". The
+            // `person_present` binary sensor in the YAML already OR's these
+            // and applies delayed_off, so this is a belt-and-suspenders path.
+            let present = matches!(payload_trim.to_ascii_uppercase().as_str(), "ON" | "TRUE" | "1");
+            if present {
+                st.note_present(true);
+            }
         }
         _ => {} // ignore other topics (e.g. uptime, ip_address)
     }
@@ -569,7 +620,7 @@ fn http_loop(
 
         if should_emit {
             let snap = state.lock().unwrap().snapshot(Duration::from_secs(20));
-            emit(&socket, &dest, cfg.node_id, &snap, start);
+            emit(&socket, &dest, cfg.node_id, cfg.radar_type, &snap, start);
         }
 
         std::thread::sleep(cfg.http_poll_interval);
@@ -598,7 +649,7 @@ mod tests {
 
     #[test]
     fn packet_has_correct_magic_and_node_id() {
-        let pkt = encode_vitals_packet(1, &snap(true, 72.0, 18.0, 145), 1234);
+        let pkt = encode_vitals_packet(1, RADAR_TYPE_MR60BHA2, &snap(true, 72.0, 18.0, 145), 1234);
         let magic = u32::from_le_bytes([pkt[0], pkt[1], pkt[2], pkt[3]]);
         assert_eq!(magic, VITALS_MAGIC);
         assert_eq!(pkt[4], 1);
@@ -607,23 +658,26 @@ mod tests {
     #[test]
     fn presence_flags() {
         // present=true ⇒ bit0 + bit3
-        let pkt = encode_vitals_packet(1, &snap(true, 72.0, 18.0, 145), 1);
+        let pkt = encode_vitals_packet(1, RADAR_TYPE_MR60BHA2, &snap(true, 72.0, 18.0, 145), 1);
         assert_eq!(pkt[5] & 0x01, 0x01);
         assert_eq!(pkt[5] & 0x08, 0x08);
         // absent
-        let pkt = encode_vitals_packet(1, &snap(false, 0.0, 0.0, 0), 1);
+        let pkt = encode_vitals_packet(1, RADAR_TYPE_MR60BHA2, &snap(false, 0.0, 0.0, 0), 1);
         assert_eq!(pkt[5], 0x00);
     }
 
     #[test]
-    fn radar_type_byte_is_mr60bha2() {
-        let pkt = encode_vitals_packet(1, &snap(true, 72.0, 18.0, 145), 1);
+    fn radar_type_byte_reflects_argument() {
+        let pkt = encode_vitals_packet(1, RADAR_TYPE_MR60BHA2, &snap(true, 72.0, 18.0, 145), 1);
         assert_eq!(pkt[14], 1);
+        let pkt = encode_vitals_packet(2, RADAR_TYPE_LD2410, &snap(true, 0.0, 0.0, 250), 1);
+        assert_eq!(pkt[14], 2);
+        assert_eq!(pkt[4], 2);
     }
 
     #[test]
     fn breath_and_heart_rates_pack_correctly() {
-        let pkt = encode_vitals_packet(1, &snap(true, 72.25, 18.5, 0), 1);
+        let pkt = encode_vitals_packet(1, RADAR_TYPE_MR60BHA2, &snap(true, 72.25, 18.5, 0), 1);
         let br_raw = u16::from_le_bytes([pkt[6], pkt[7]]);
         let hr_raw = u32::from_le_bytes([pkt[8], pkt[9], pkt[10], pkt[11]]);
         assert_eq!(br_raw, 1850);
@@ -632,8 +686,34 @@ mod tests {
 
     #[test]
     fn distance_in_bytes_28_29() {
-        let pkt = encode_vitals_packet(1, &snap(true, 0.0, 0.0, 145), 1);
+        let pkt = encode_vitals_packet(1, RADAR_TYPE_MR60BHA2, &snap(true, 0.0, 0.0, 145), 1);
         assert_eq!(u16::from_le_bytes([pkt[28], pkt[29]]), 145);
+    }
+
+    #[test]
+    fn ld2410_topics_parse() {
+        let mut st = RadarState::default();
+        apply_mqtt_message(
+            "ruview-s3-ld2410-n2",
+            "ruview-s3-ld2410-n2/sensor/moving_distance/state",
+            "250",
+            &mut st,
+        );
+        assert_eq!(st.target_distance_cm, Some(250));
+        apply_mqtt_message(
+            "ruview-s3-ld2410-n2",
+            "ruview-s3-ld2410-n2/binary_sensor/moving_target_present/state",
+            "ON",
+            &mut st,
+        );
+        assert!(st.person_present);
+        apply_mqtt_message(
+            "ruview-s3-ld2410-n2",
+            "ruview-s3-ld2410-n2/sensor/still_distance/state",
+            "180",
+            &mut st,
+        );
+        assert_eq!(st.target_distance_cm, Some(180));
     }
 
     #[test]
@@ -649,8 +729,10 @@ mod tests {
         assert_eq!(st.wifi_rssi_dbm, Some(-58));
         apply_mqtt_message("ruview-c6-radar", "ruview-c6-radar/binary_sensor/person_present/state", "ON", &mut st);
         assert!(st.person_present);
+        // Sticky-OFF: a transient OFF right after an ON does NOT immediately
+        // clear presence (PRESENCE_STICKY_WINDOW masks single-frame drops).
         apply_mqtt_message("ruview-c6-radar", "ruview-c6-radar/binary_sensor/person_present/state", "OFF", &mut st);
-        assert!(!st.person_present);
+        assert!(st.person_present, "sticky window keeps presence=true through brief OFF");
     }
 
     #[test]

@@ -23,7 +23,10 @@
       "last_seen_ip": "192.168.7.189",
       "wifi_bssid": "14:22:db:bc:7b:e6",
       "provisioned": "2026-06-07",
-      "notes": "Re-provisioned 2026-06-07 from USB Port B (5B7B0511421)."
+      "firmware": "ESPHome 2026.5.3 (ruview-s3-ld2410.yaml) — RuView CSI replaced 2026-06-11",
+      "ld2410_status": "unit declared bad 2026-06-11 after exhaustive TX/RX x baud testing; new LD2410s arriving 2026-06-12",
+      "role_pending": "long-range presence + range via LD2410 once a working unit is wired",
+      "notes": "Re-flashed 2026-06-11 to ESPHome to host an LD2410. The original LD2410 wiring incident damaged the radar (not the S3 — the S3 boots and runs ESPHome cleanly). Pi systemd drop-in keeps RUVIEW_LD2410_* env vars commented out until a working LD2410 is attached, at which point the bridge picks it up via MQTT with zero further config."
     },
     "3": {
       "chip": "esp32s3",
