@@ -252,7 +252,12 @@ v1/src/sensing/mac_wifi
 
 # Local build scripts
 firmware/esp32-csi-node/build_firmware.batdata/
-models/
+# `/models/` (root-only) — ML model artifacts (.pt/.onnx). The trailing-only
+# match was `models/` originally, which on case-insensitive macOS filesystems
+# silently swallowed mobile/ios/RuView/Models/ too, so the iOS app's
+# Models.swift was never tracked → testers couldn't compile. Pinning to the
+# repo root fixes both cases.
+/models/
 demo_pointcloud.ply
 demo_splats.json
 
