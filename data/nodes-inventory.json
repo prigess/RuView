@@ -1,6 +1,6 @@
 {
-  "_comment": "Hardware inventory of ESP32-S3 sensing nodes. Source of truth for node_id ↔ MAC ↔ position. IPs may change with DHCP; that is intentional — node_id (provisioned into NVS) is the canonical identity used by the sensing-server.",
-  "_updated": "2026-06-07",
+  "_comment": "Hardware inventory of RuView sensing nodes. Source of truth for node_id ↔ MAC ↔ position. IPs may change with DHCP; that is intentional — node_id (provisioned into NVS for the S3s, set via systemd env for the C6) is the canonical identity used by the sensing-server.",
+  "_updated": "2026-06-11",
   "network": {
     "ssid": "Firefly",
     "target_server": "192.168.7.205",
@@ -39,11 +39,14 @@
       "mac": "58:e6:c5:19:a4:40",
       "position": "south",
       "last_seen_ip": "192.168.7.223",
-      "wifi_bssid": null,
-      "provisioned": null,
-      "active": false,
-      "removed_at": "2026-06-07",
-      "notes": "REMOVED 2026-06-07. ESP32-C6 (RISC-V) previously occupied the south position; it has been physically taken out of the deployment. The iOS app and Pi ip-map no longer expect a south node. Restore this entry, the iOS expectedRoster south row, and the Pi ip-map node id=4 entry when a south node is added back. scripts/reprovision-node7-to-node4.sh is preserved for that future use."
+      "wifi_bssid": "14:22:db:bc:7b:e6",
+      "provisioned": "2026-06-08",
+      "active": true,
+      "restored_at": "2026-06-11",
+      "firmware": "ESPHome 2026.5.3 + Seeed MR60BHA2 60 GHz radar",
+      "transport": "MQTT to mosquitto on Pi (127.0.0.1:1883), topic prefix ruview-c6-radar",
+      "role": "authoritative source for presence, range, HR, BR (radar-grade, not heuristic)",
+      "notes": "Restored 2026-06-11. The Pi-side c6_radar_bridge subscribes to MQTT and synthesises ADR-039 vitals packets stamped with node_id=4, set via systemd drop-in /etc/systemd/system/ruview-sensing.service.d/c6-radar.conf env RUVIEW_C6_NODE_ID=4. Earlier collision with node 1 (when the env was =1) clobbered the west S3's CSI slot half the time."
     }
   },
   "spare": {

@@ -18,9 +18,10 @@ private struct ExpectedNode: Identifiable {
     let chip: String             // "ESP32-S3" or "ESP32-C6"
 }
 
-// Current dome roster is 3 ESP32-S3 nodes (west / north / east). The ESP32-C6
-// that previously occupied the south position has been removed. Restore the
-// 4th entry here when a south node is added back.
+// Current dome roster (2026-06-11): 3 ESP32-S3 CSI nodes + 1 ESP32-C6 radar
+// node. The C6 in slot 4 runs ESPHome and publishes MR60BHA2 vital signs +
+// presence to the Pi via MQTT; the sensing-server's c6_radar_bridge stamps
+// those packets with node_id=4 so they land in this position.
 private let expectedRoster: [ExpectedNode] = [
     ExpectedNode(id: 1, acceptedIds: [1], name: "Node 1", position: "West",
                  mac: "e0:72:a1:d5:1d:4c", chip: "ESP32-S3"),
@@ -28,6 +29,8 @@ private let expectedRoster: [ExpectedNode] = [
                  mac: "e0:72:a1:db:59:34", chip: "ESP32-S3"),
     ExpectedNode(id: 3, acceptedIds: [3], name: "Node 3", position: "East",
                  mac: "44:1b:f6:84:20:74", chip: "ESP32-S3"),
+    ExpectedNode(id: 4, acceptedIds: [4], name: "Node 4", position: "South",
+                 mac: "58:e6:c5:19:a4:40", chip: "ESP32-C6"),
 ]
 
 // MARK: - NodeHealthView
