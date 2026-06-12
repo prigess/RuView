@@ -98,6 +98,12 @@ struct RadarState {
     held_br: Option<f64>,
     held_at: Option<Instant>,
     last_mqtt_seen: Option<Instant>,
+    // Presence stickiness — MR60BHA2's `has_target` flag drops momentarily
+    // between frames even when the person hasn't moved (the radar lost lock
+    // for one cycle and re-acquires the next). Hold presence=true for
+    // PRESENCE_STICKY_WINDOW after the last confirmed true reading so the
+    // displayed count doesn't oscillate 1→0→1 several times a second.
+    last_presence_true_at: Option<Instant>,
     // EMA-smoothed motion energy derived from HR/BR drift between ticks.
     last_hr_seen: Option<f64>,
     last_br_seen: Option<f64>,
@@ -114,6 +120,12 @@ const HR_PLAUSIBLE_MIN_BPM: f64 = 40.0;
 const HR_PLAUSIBLE_MAX_BPM: f64 = 200.0;
 const BR_PLAUSIBLE_MIN_BPM: f64 = 8.0;
 const BR_PLAUSIBLE_MAX_BPM: f64 = 35.0;
+
+// How long to keep reporting `person_present: true` after the radar's last
+// confirmed positive reading. Picked to comfortably outlast the radar's
+// frame-to-frame target re-lock churn (~0.5 - 2 s) without making "person
+// left the room" detection sluggish.
+const PRESENCE_STICKY_WINDOW: Duration = Duration::from_secs(4);
 
 impl RadarState {
     fn note_hr(&mut self, v: f64) {
@@ -140,11 +152,26 @@ impl RadarState {
         self.wifi_rssi_dbm = Some(dbm);
     }
     fn note_present(&mut self, p: bool) {
-        self.person_present = p;
-        if !p {
-            self.heart_rate_bpm = None;
-            self.breath_rate_bpm = None;
-            self.target_distance_cm = None;
+        if p {
+            self.person_present = true;
+            self.last_presence_true_at = Some(Instant::now());
+        } else {
+            // Sticky-OFF: only clear if it's been more than PRESENCE_STICKY_WINDOW
+            // since we last saw a confirmed positive. This rides out the radar's
+            // momentary lock-drop between frames without making "person left the
+            // room" detection sluggish (the window is short).
+            let still_held = self
+                .last_presence_true_at
+                .map(|t| Instant::now().duration_since(t) < PRESENCE_STICKY_WINDOW)
+                .unwrap_or(false);
+            if !still_held {
+                self.person_present = false;
+                self.heart_rate_bpm = None;
+                self.breath_rate_bpm = None;
+                self.target_distance_cm = None;
+            }
+            // Otherwise: keep person_present=true and keep the live HR/BR/dist
+            // values so vitals don't drop to zero through micro-flickers.
         }
     }
 
