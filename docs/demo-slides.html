@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RuView — Demo Slides</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  :root {
+    --steel:       #4682B4;
+    --steel-dark:  #2C5282;
+    --steel-light: #BDD5EA;
+    --steel-pale:  #EFF4FA;
+    --ink:         #0F1A2E;
+    --text:        #1A2E4A;
+    --sub:         #6B7FA3;
+    --ok:          #2BA66A;
+    --heart:       #E05A5A;
+    --lung:        #2BA6A6;
+    --card:        #FFFFFF;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+    background: #0E1521;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .deck {
+    width: 100vw; height: 100vh;
+    position: relative;
+  }
+  .slide {
+    position: absolute; inset: 0;
+    background: linear-gradient(160deg, #F7FAFD 0%, #EFF4FA 100%);
+    padding: 6vh 8vw;
+    display: flex; flex-direction: column;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.35s ease;
+  }
+  .slide.active { opacity: 1; pointer-events: auto; }
+  .slide-header { display: flex; align-items: baseline; gap: 16px; margin-bottom: 4vh; }
+  .slide-number {
+    font: 600 14px "SF Mono", monospace;
+    color: var(--steel-dark);
+    background: var(--steel-pale);
+    padding: 4px 10px;
+    border-radius: 999px;
+  }
+  .slide-kicker {
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--steel);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  h1 {
+    font-size: 56px;
+    color: var(--ink);
+    line-height: 1.05;
+    letter-spacing: -1px;
+    margin-bottom: 1.2vh;
+  }
+  .lede {
+    font-size: 22px;
+    color: var(--sub);
+    margin-bottom: 5vh;
+    max-width: 75%;
+    line-height: 1.4;
+  }
+  .slide-body { flex: 1; display: flex; gap: 40px; min-height: 0; }
+
+  /* — Slide 1: setup — */
+  .topo-wrap { flex: 1.4; display: flex; align-items: center; justify-content: center; }
+  .topo-wrap svg { width: 100%; height: 100%; max-width: 720px; max-height: 56vh; }
+  .specs { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 18px; }
+  .spec-card {
+    background: var(--card);
+    border: 1px solid var(--steel-light);
+    border-radius: 14px;
+    padding: 18px 22px;
+    box-shadow: 0 2px 8px rgba(46, 82, 130, 0.08);
+  }
+  .spec-card .label {
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-size: 11px;
+    color: var(--sub);
+    margin-bottom: 4px;
+  }
+  .spec-card .value {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .spec-card .value small {
+    font-size: 14px;
+    color: var(--sub);
+    font-weight: 400;
+    margin-left: 6px;
+  }
+
+  /* — Slide 2: presence — */
+  .presence-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 40px;
+    flex: 1;
+    min-height: 0;
+  }
+  .radar-viz { display: flex; align-items: center; justify-content: center; }
+  .radar-viz svg { width: 100%; height: 100%; max-width: 580px; max-height: 56vh; }
+  .features { display: flex; flex-direction: column; justify-content: center; gap: 14px; }
+  .feature {
+    background: var(--card);
+    border-left: 4px solid var(--steel);
+    border-radius: 10px;
+    padding: 16px 22px;
+    box-shadow: 0 2px 8px rgba(46, 82, 130, 0.06);
+    display: flex; align-items: center; gap: 18px;
+  }
+  .feature.heart { border-left-color: var(--heart); }
+  .feature.lung  { border-left-color: var(--lung); }
+  .feature.range { border-left-color: var(--steel-dark); }
+  .feature.present { border-left-color: var(--ok); }
+  .feature .icon {
+    width: 44px; height: 44px;
+    border-radius: 10px;
+    background: var(--steel-pale);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+  }
+  .feature.heart   .icon { background: #FBE5E5; color: var(--heart); }
+  .feature.lung    .icon { background: #DCF1F1; color: var(--lung); }
+  .feature.range   .icon { background: var(--steel-pale); color: var(--steel-dark); }
+  .feature.present .icon { background: #DCF1E5; color: var(--ok); }
+  .feature .text { flex: 1; }
+  .feature .text .name {
+    font-size: 18px; font-weight: 600; color: var(--ink);
+  }
+  .feature .text .desc {
+    font-size: 14px; color: var(--sub); margin-top: 2px; line-height: 1.4;
+  }
+
+  /* navigation */
+  .nav-hint {
+    position: fixed; bottom: 18px; right: 24px;
+    font: 11px "SF Mono", monospace;
+    color: var(--sub);
+    background: rgba(255,255,255,0.7);
+    padding: 5px 10px;
+    border-radius: 6px;
+  }
+  .dots {
+    position: fixed; bottom: 18px; left: 50%;
+    transform: translateX(-50%);
+    display: flex; gap: 8px;
+  }
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--steel-light);
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .dot.active { background: var(--steel-dark); }
+
+  /* SVG primitives */
+  .topo-node-bg {
+    fill: var(--card); stroke: var(--steel); stroke-width: 2;
+  }
+  .topo-node-bg.primary {
+    fill: var(--steel-pale); stroke: var(--steel-dark); stroke-width: 2.5;
+  }
+  .topo-node-bg.radar { stroke: var(--ok); }
+  .topo-node-title { font: 600 16px sans-serif; fill: var(--ink); }
+  .topo-node-sub { font: 12px "SF Mono", monospace; fill: var(--sub); }
+  .topo-edge {
+    stroke: var(--steel); stroke-width: 2; fill: none;
+    marker-end: url(#topo-arrow);
+  }
+  .topo-edge.dashed { stroke-dasharray: 6 4; opacity: 0.8; }
+  .topo-edge-label {
+    font: 12px "SF Mono", monospace; fill: var(--steel-dark);
+    text-anchor: middle;
+  }
+
+  @media print {
+    html, body { overflow: visible; height: auto; background: white; }
+    .deck { height: auto; }
+    .slide {
+      position: relative; opacity: 1 !important;
+      pointer-events: auto; page-break-after: always;
+      height: 100vh; width: 100vw;
+    }
+    .nav-hint, .dots { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="deck">
+
+  <!-- ───────────── SLIDE 1 ───────────── -->
+  <section class="slide active" id="s1">
+    <div class="slide-header">
+      <span class="slide-number">01</span>
+      <span class="slide-kicker">RuView — Setup</span>
+    </div>
+    <h1>Three devices.<br/>One demo.</h1>
+    <p class="lede">Orange Pi runs the sensing server. ESP32-C6 streams 60 GHz radar data over MQTT. iOS Simulator on the Mac reads it over WebSocket. All three on a single phone hotspot.</p>
+
+    <div class="slide-body">
+      <div class="topo-wrap">
+        <svg id="topo-svg" viewBox="0 0 720 460" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+
+      <div class="specs">
+        <div class="spec-card">
+          <div class="label">Sensor</div>
+          <div class="value">ESP32-C6 + MR60BHA2<small>60 GHz FMCW radar</small></div>
+        </div>
+        <div class="spec-card">
+          <div class="label">Server</div>
+          <div class="value">Orange Pi 5<small>simha.local</small></div>
+        </div>
+        <div class="spec-card">
+          <div class="label">Client</div>
+          <div class="value">iOS Simulator<small>on the Mac running Xcode</small></div>
+        </div>
+        <div class="spec-card">
+          <div class="label">Network</div>
+          <div class="value">Phone hotspot<small>portable: no router, no wires</small></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────── SLIDE 2 ───────────── -->
+  <section class="slide" id="s2">
+    <div class="slide-header">
+      <span class="slide-number">02</span>
+      <span class="slide-kicker">RuView — What it sees</span>
+    </div>
+    <h1>Radar-grade<br/>presence detection.</h1>
+    <p class="lede">The 60 GHz radar locks onto the chest's micro-motion from breathing. That gives us presence, distance, breathing rate, and heart rate — all from one sensor, all updated in real time.</p>
+
+    <div class="presence-grid">
+      <div class="radar-viz">
+        <svg id="radar-svg" viewBox="0 0 580 480" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+
+      <div class="features">
+        <div class="feature present">
+          <div class="icon">●</div>
+          <div class="text">
+            <div class="name">Presence</div>
+            <div class="desc">Detects a person within the 120° cone. 4-second stickiness rides out micro lock-loss.</div>
+          </div>
+        </div>
+        <div class="feature range">
+          <div class="icon">⤢</div>
+          <div class="text">
+            <div class="name">Range</div>
+            <div class="desc">0.5 – 3 m. Distance reported in centimeters, ±10 cm typical accuracy.</div>
+          </div>
+        </div>
+        <div class="feature heart">
+          <div class="icon">♥</div>
+          <div class="text">
+            <div class="name">Heart rate</div>
+            <div class="desc">40 – 200 BPM. Plausibility-gated against radar lock-on noise.</div>
+          </div>
+        </div>
+        <div class="feature lung">
+          <div class="icon">~</div>
+          <div class="text">
+            <div class="name">Breathing rate</div>
+            <div class="desc">8 – 35 BPM. Updates within a few seconds of subject becoming still.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="dots">
+  <span class="dot active" data-i="0"></span>
+  <span class="dot" data-i="1"></span>
+</div>
+<div class="nav-hint">← → or space to switch · P to print</div>
+
+<script>
+// ── SLIDE 1 — topology diagram ─────────────────────────────────────────
+(function() {
+  const svg = d3.select("#topo-svg");
+  svg.append("defs").append("marker")
+    .attr("id", "topo-arrow").attr("viewBox", "0 -5 10 10")
+    .attr("refX", 8).attr("refY", 0)
+    .attr("markerWidth", 8).attr("markerHeight", 8)
+    .attr("orient", "auto")
+    .append("path").attr("d", "M0,-5L10,0L0,5").attr("fill", "var(--steel)");
+
+  const nodes = [
+    { id: "phone", x: 360, y: 50,  title: "iPhone Hotspot",  sub: "SSID: JoelAndroid",      type: "primary" },
+    { id: "mac",   x: 90,  y: 230, title: "Mac · Xcode",     sub: "iOS Simulator",          type: "client" },
+    { id: "pi",    x: 360, y: 230, title: "Orange Pi 5",     sub: "simha.local",            type: "primary" },
+    { id: "c6",    x: 630, y: 230, title: "ESP32-C6",        sub: "MR60BHA2 radar",         type: "radar" },
+  ];
+  const edges = [
+    { s: "phone", t: "mac",  l: "Wi-Fi",         curve: -25 },
+    { s: "phone", t: "pi",   l: "Wi-Fi",         curve: 0 },
+    { s: "phone", t: "c6",   l: "Wi-Fi",         curve: 25 },
+    { s: "c6",    t: "pi",   l: "MQTT",          curve: 40, dashed: true },
+    { s: "mac",   t: "pi",   l: "WebSocket",     curve: 40, dashed: true },
+  ];
+  const nm = Object.fromEntries(nodes.map(n => [n.id, n]));
+
+  edges.forEach(e => {
+    const a = nm[e.s], b = nm[e.t];
+    const mx = (a.x + b.x) / 2;
+    const my = (a.y + b.y) / 2 + (e.curve || 0);
+    svg.append("path")
+      .attr("class", "topo-edge" + (e.dashed ? " dashed" : ""))
+      .attr("d", `M${a.x},${a.y} Q${mx},${my} ${b.x},${b.y}`);
+    svg.append("text")
+      .attr("class", "topo-edge-label")
+      .attr("x", mx).attr("y", my + (e.curve >= 0 ? -8 : 16))
+      .text(e.l);
+  });
+
+  const g = svg.append("g").selectAll("g.tnode").data(nodes).enter().append("g")
+    .attr("transform", d => `translate(${d.x},${d.y})`);
+  g.append("rect")
+    .attr("class", d => "topo-node-bg " + d.type)
+    .attr("x", -110).attr("y", -34)
+    .attr("width", 220).attr("height", 68)
+    .attr("rx", 12);
+  g.append("text").attr("class", "topo-node-title")
+    .attr("text-anchor", "middle").attr("y", -6).text(d => d.title);
+  g.append("text").attr("class", "topo-node-sub")
+    .attr("text-anchor", "middle").attr("y", 16).text(d => d.sub);
+})();
+
+// ── SLIDE 2 — radar cone + person silhouette ───────────────────────────
+(function() {
+  const svg = d3.select("#radar-svg");
+
+  // Radar (the C6) sits at the bottom center
+  const cx = 290, cy = 420;
+  const range1 = 100, range2 = 200, range3 = 300;  // concentric ranges
+  const halfAngle = 60 * Math.PI / 180;  // 120° cone → 60° half-angle
+
+  // Cone background
+  const leftX = cx + Math.sin(-halfAngle) * range3;
+  const rightX = cx + Math.sin(halfAngle) * range3;
+  const topY = cy - Math.cos(halfAngle) * range3;
+  svg.append("path")
+    .attr("d", `M${cx},${cy} L${leftX},${topY} A${range3},${range3} 0 0 1 ${rightX},${topY} Z`)
+    .attr("fill", "var(--steel-pale)").attr("stroke", "var(--steel-light)").attr("stroke-width", 1);
+
+  // Range arcs
+  [range1, range2, range3].forEach((r, i) => {
+    const lx = cx + Math.sin(-halfAngle) * r;
+    const rx = cx + Math.sin(halfAngle) * r;
+    const ty = cy - Math.cos(halfAngle) * r;
+    svg.append("path")
+      .attr("d", `M${lx},${ty} A${r},${r} 0 0 1 ${rx},${ty}`)
+      .attr("fill", "none")
+      .attr("stroke", "var(--steel)")
+      .attr("stroke-width", 1)
+      .attr("opacity", 0.35)
+      .attr("stroke-dasharray", "3 4");
+  });
+
+  // Range labels
+  [
+    { r: range1, label: "1 m" },
+    { r: range2, label: "2 m" },
+    { r: range3, label: "3 m" },
+  ].forEach(d => {
+    svg.append("text")
+      .attr("x", cx + 6).attr("y", cy - d.r + 4)
+      .attr("font", "11px 'SF Mono', monospace")
+      .attr("fill", "var(--sub)")
+      .attr("font-family", "SF Mono, monospace")
+      .attr("font-size", "11px")
+      .text(d.label);
+  });
+
+  // The radar device itself
+  svg.append("rect")
+    .attr("x", cx - 40).attr("y", cy - 6).attr("width", 80).attr("height", 22)
+    .attr("rx", 4)
+    .attr("fill", "var(--steel-dark)").attr("stroke", "var(--steel-dark)");
+  svg.append("text")
+    .attr("x", cx).attr("y", cy + 9)
+    .attr("text-anchor", "middle")
+    .attr("font", "600 11px 'SF Mono', monospace")
+    .attr("font-family", "SF Mono, monospace")
+    .attr("font-size", "11px")
+    .attr("font-weight", "600")
+    .attr("fill", "white")
+    .text("MR60BHA2");
+
+  // Person silhouette at ~1.5 m
+  const px = cx;
+  const py = cy - 220;
+  const g = svg.append("g").attr("transform", `translate(${px},${py})`);
+  // Head
+  g.append("circle").attr("r", 16).attr("cy", -28)
+    .attr("fill", "var(--ink)");
+  // Body (torso)
+  g.append("path")
+    .attr("d", "M-22,0 L22,0 L18,80 L-18,80 Z")
+    .attr("fill", "var(--ink)");
+  // Heart blip
+  const heart = g.append("circle").attr("cx", -6).attr("cy", 16).attr("r", 5).attr("fill", "var(--heart)");
+  // Lungs blip
+  const lung = g.append("circle").attr("cx", 8).attr("cy", 22).attr("r", 6).attr("fill", "var(--lung)").attr("opacity", 0.85);
+  // Animate the radar pings
+  let t = 0;
+  setInterval(() => {
+    t = (t + 1) % 60;
+    heart.attr("r", 5 + Math.sin(t * 0.4) * 1.5);
+    lung.attr("r", 6 + Math.sin(t * 0.16) * 1.2);
+  }, 80);
+
+  // Radar pings (animated arcs from radar to person)
+  const ping = svg.append("circle")
+    .attr("cx", cx).attr("cy", cy).attr("r", 0)
+    .attr("fill", "none")
+    .attr("stroke", "var(--ok)")
+    .attr("stroke-width", 2);
+  function animatePing() {
+    ping.attr("r", 0).attr("opacity", 0.7)
+      .transition().duration(1800)
+      .attr("r", 250)
+      .attr("opacity", 0)
+      .on("end", animatePing);
+  }
+  animatePing();
+
+  // Annotation: detection band
+  svg.append("text")
+    .attr("x", cx).attr("y", py - 60)
+    .attr("text-anchor", "middle")
+    .attr("font-family", "sans-serif")
+    .attr("font-size", "13px")
+    .attr("font-weight", "600")
+    .attr("fill", "var(--ok)")
+    .text("DETECTION ZONE");
+  svg.append("text")
+    .attr("x", cx).attr("y", py - 44)
+    .attr("text-anchor", "middle")
+    .attr("font-family", "SF Mono, monospace")
+    .attr("font-size", "11px")
+    .attr("fill", "var(--sub)")
+    .text("120° × 3 m");
+})();
+
+// ── slide navigation ───────────────────────────────────────────────────
+const slides = document.querySelectorAll(".slide");
+const dots = document.querySelectorAll(".dot");
+let cur = 0;
+function goTo(i) {
+  cur = ((i % slides.length) + slides.length) % slides.length;
+  slides.forEach((s, ix) => s.classList.toggle("active", ix === cur));
+  dots.forEach((d, ix) => d.classList.toggle("active", ix === cur));
+}
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowRight" || e.key === " " || e.key === "PageDown") { e.preventDefault(); goTo(cur + 1); }
+  else if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); goTo(cur - 1); }
+  else if (e.key === "p" || e.key === "P") { window.print(); }
+  else if (e.key === "1") { goTo(0); }
+  else if (e.key === "2") { goTo(1); }
+});
+dots.forEach((d, i) => d.addEventListener("click", () => goTo(i)));
+</script>
+</body>
+</html>
