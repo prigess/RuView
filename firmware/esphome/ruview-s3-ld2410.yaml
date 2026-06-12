@@ -46,19 +46,23 @@ esp32:
     version: recommended
   flash_size: 8MB
 
-# ── WiFi — pin to AP B (same workaround used elsewhere on this mesh) ───────
+# ── WiFi (portable: phone hotspot primary, home WiFi fallback) ─────────────
+# Matches the C6's portable WiFi strategy (see ruview-c6-radar.yaml). The
+# device joins whichever known SSID is broadcasting at the moment, so it
+# works at home AND at the workplace with no re-flash.
 wifi:
   power_save_mode: NONE
-  fast_connect: true
+  fast_connect: false
   reboot_timeout: 0s
   networks:
-    - ssid: !secret wifi_ssid
-      password: !secret wifi_password
-      bssid: "14:22:db:bc:7b:e6"   # AP B — confirmed working
+    # Phone hotspot — primary when broadcasting (portable demos).
+    - ssid: !secret wifi_ssid_hotspot
+      password: !secret wifi_password_hotspot
       priority: 10
-    - ssid: !secret wifi_ssid
-      password: !secret wifi_password
-      priority: 1
+    # Home mesh — fallback (auto-wins when JoelAndroid isn't around).
+    - ssid: !secret wifi_ssid_home
+      password: !secret wifi_password_home
+      priority: 5
 
 # ── Native API (for ESPHome's `logs` and OTA tooling) ──────────────────────
 api:

@@ -51,7 +51,7 @@ struct DeviceSetupView: View {
             Text("RuView Sensing")
                 .font(.title2).fontWeight(.bold).foregroundColor(.healthText)
 
-            Text("Enter the IP address of your Orange Pi sensing server to start monitoring WiFi-based pose estimation.")
+            Text("Enter the IP or hostname (e.g. simha.local) of your Orange Pi sensing server to start monitoring.")
                 .font(.callout).foregroundColor(.healthSub).multilineTextAlignment(.center)
         }
         .padding(.top, 8)
@@ -172,9 +172,9 @@ struct DeviceSetupView: View {
     private func attemptConnect() {
         let trimmed = inputHost.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        guard isValidIP(trimmed) else {
+        guard isValidHost(trimmed) else {
             withAnimation {
-                errorMessage = "Please enter a valid IP address (e.g. 192.168.1.100)"
+                errorMessage = "Please enter an IP (e.g. 192.168.1.100) or hostname (e.g. simha.local)"
             }
             return
         }
@@ -205,13 +205,13 @@ struct DeviceSetupView: View {
                     isChecking = false
                     switch urlError.code {
                     case .cannotConnectToHost, .networkConnectionLost:
-                        errorMessage = "Cannot reach server at \(trimmed):3022. Check the IP and ensure the server is running."
+                        errorMessage = "Cannot reach server at \(trimmed):3022. Check the address and ensure the server is running."
                     case .timedOut:
                         errorMessage = "Connection timed out. The server may be busy or unreachable."
                     case .notConnectedToInternet:
                         errorMessage = "No internet connection. Connect to the same network as the server."
                     default:
-                        errorMessage = "Could not connect to server. Verify the IP address and try again."
+                        errorMessage = "Could not connect to server. Verify the address and try again."
                     }
                 }
             } catch {
@@ -223,14 +223,15 @@ struct DeviceSetupView: View {
         }
     }
 
-    private func isValidIP(_ string: String) -> Bool {
+    /// Accept either an IPv4 dotted-quad ("192.168.7.205") or a hostname
+    /// ("simha.local", "orangepi.local", "ruview-server"). The latter resolves
+    /// via the device's DNS / mDNS resolver — particularly useful when the
+    /// Pi's IP changes between networks (phone hotspot vs. home WiFi).
+    private func isValidHost(_ string: String) -> Bool {
         let parts = string.split(separator: ".").map(String.init)
-        if parts.count == 4 {
-            return parts.allSatisfy { part in
-                guard let value = Int(part), (0...255).contains(value) else { return false }
-                return true
-            }
+        if parts.count == 4 && parts.allSatisfy({ Int($0).map { (0...255).contains($0) } ?? false }) {
+            return true   // IPv4
         }
-        return string.count > 0 && !string.contains(" ")
+        return !string.isEmpty && !string.contains(" ") && !string.hasPrefix(".") && !string.hasSuffix(".")
     }
 }

@@ -40,27 +40,35 @@ esp32:
     type: esp-idf
     version: recommended
 
-# ── WiFi ────────────────────────────────────────────────────────────────────
+# ── WiFi (portable: phone hotspot primary, home WiFi fallback) ─────────────
+#
+# Strategy: list multiple networks with priorities. The C6 picks the
+# highest-priority SSID that's actually broadcasting at the moment.
+#   - At home: JoelAndroid isn't visible → C6 joins Firefly.
+#   - On the go (hotspot on): JoelAndroid wins → C6 joins phone.
+# Zero re-flash needed to move between locations.
+#
+# BSSID lock removed (was pinning to AP B for the home-mesh isolation
+# workaround). With the multi-network priority list above, the C6 picks any
+# available AP on the SSID, which is what we want for portable mode.
 #
 # - power_save_mode: NONE — keeps the radio responsive at the cost of mA;
 #   matches our experience that PS triggers silent UDP drops on this mesh.
-# - bssid lock to "AP B" (14:22:db:bc:7b:e6) — the AP confirmed working from
-#   the Pi side. Remove the lock once the upstream mesh isolation is fixed.
-# - fast_connect — skips full scan after first boot. Saves ~2s on reconnect.
+# - fast_connect: false (was true) — must scan to find the right SSID per trip.
 # - reboot_timeout: 0s — never reboot on WiFi drop; keep retrying instead.
 wifi:
   power_save_mode: NONE
-  fast_connect: true
+  fast_connect: false
   reboot_timeout: 0s
   networks:
-    - ssid: !secret wifi_ssid
-      password: !secret wifi_password
-      bssid: "14:22:db:bc:7b:e6"   # AP B — confirmed working
+    # Phone hotspot — primary when broadcasting (portable demos).
+    - ssid: !secret wifi_ssid_hotspot
+      password: !secret wifi_password_hotspot
       priority: 10
-    # Fallback to any matching SSID if locked BSSID is out of range.
-    - ssid: !secret wifi_ssid
-      password: !secret wifi_password
-      priority: 1
+    # Home mesh — fallback (auto-wins when JoelAndroid isn't around).
+    - ssid: !secret wifi_ssid_home
+      password: !secret wifi_password_home
+      priority: 5
 
 # ── Native ESPHome API (for HA + remote diagnostics + OTA hand-off) ─────────
 api:
