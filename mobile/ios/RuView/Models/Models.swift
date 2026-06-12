@@ -7,12 +7,12 @@ struct SensingSnapshot: Decodable {
     let tick: Int
     let timestamp: Double
     let type: String
-    let estimatedPersons: Int
+    let estimatedPersons: Int?
     let classification: Classification
-    let nodeFeatures: [NodeFeature]
-    let nodes: [NodeInfo]
-    let persons: [Person]
-    let vitalSigns: VitalSigns
+    let nodeFeatures: [NodeFeature]?
+    let nodes: [NodeInfo]?
+    let persons: [Person]?
+    let vitalSigns: VitalSigns?
     let signalField: SignalField?
 
     enum CodingKeys: String, CodingKey {

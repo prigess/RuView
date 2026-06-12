@@ -1,0 +1,76 @@
+# Emergency demo YAML for the C6 — radar-only, no WiFi/MQTT needed.
+# Live radar readings stream out the USB serial console so a laptop
+# connected via USB-C can show live data without any network at all.
+
+substitutions:
+  device_name: ruview-c6-usb-demo
+  device_friendly: "RuView C6 (USB demo mode)"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${device_friendly}
+
+esp32:
+  board: esp32-c6-devkitc-1
+  framework:
+    type: esp-idf
+    version: recommended
+  flash_size: 4MB
+
+# No WiFi block — pure offline operation.
+# No MQTT, no API — pure serial out.
+
+logger:
+  level: INFO
+  baud_rate: 115200
+
+uart:
+  id: mmwave_uart
+  tx_pin: GPIO16
+  rx_pin: GPIO17
+  baud_rate: 115200
+  parity: NONE
+  stop_bits: 1
+  rx_buffer_size: 256
+
+seeed_mr60bha2:
+  id: mr60bha2
+  uart_id: mmwave_uart
+
+# Every sensor logs on change via the on_value lambda so the laptop's
+# `esphome logs` (or a raw `cat /dev/cu.usbmodem*`) sees live numbers.
+sensor:
+  - platform: seeed_mr60bha2
+    breath_rate:
+      name: "Breath Rate"
+      on_value:
+        lambda: |-
+          ESP_LOGI("radar", "BR=%.0f BPM", x);
+    heart_rate:
+      name: "Heart Rate"
+      on_value:
+        lambda: |-
+          ESP_LOGI("radar", "HR=%.0f BPM", x);
+    distance:
+      name: "Target Distance"
+      on_value:
+        lambda: |-
+          ESP_LOGI("radar", "DIST=%.1f cm", x);
+    num_targets:
+      name: "Target Count"
+      on_value:
+        lambda: |-
+          ESP_LOGI("radar", "TARGETS=%.0f", x);
+
+binary_sensor:
+  - platform: seeed_mr60bha2
+    has_target:
+      name: "Person Present"
+      filters:
+        - delayed_off: 2s
+      on_press:
+        - lambda: |-
+            ESP_LOGI("radar", "*** PRESENT ***");
+      on_release:
+        - lambda: |-
+            ESP_LOGI("radar", "--- ABSENT ---");

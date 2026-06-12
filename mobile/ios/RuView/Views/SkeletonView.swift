@@ -26,7 +26,7 @@ struct SkeletonView: View {
 
     private var statsBar: some View {
         HStack(spacing: 0) {
-            statItem(label: "Persons", value: "\(viewModel.snapshot?.persons.count ?? 0)")
+            statItem(label: "Persons", value: "\(viewModel.snapshot?.persons?.count ?? 0)")
             Divider().frame(height: 32)
             statItem(label: "Source", value: viewModel.sourceLabel)
             Divider().frame(height: 32)

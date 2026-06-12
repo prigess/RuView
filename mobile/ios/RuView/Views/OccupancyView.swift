@@ -120,7 +120,7 @@ struct OccupancyView: View {
             detailRow(label: "Last tick", value: viewModel.formattedTick, icon: "clock")
             Divider().padding(.leading, 52)
             detailRow(label: "Active nodes",
-                      value: "\(viewModel.snapshot?.nodeFeatures.count ?? 0)",
+                      value: "\(viewModel.snapshot?.nodeFeatures?.count ?? 0)",
                       icon: "antenna.radiowaves.left.and.right")
         }
         .background(Color.surface)
