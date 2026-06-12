@@ -2299,6 +2299,7 @@ async fn windows_wifi_task(state: SharedState, tick_ms: u64) {
             update.persons = Some(tracked);
         }
 
+        apply_radar_override(&s, &mut update);
         if let Ok(json) = serde_json::to_string(&update) {
             let _ = s.tx.send(json);
         }
@@ -2455,6 +2456,7 @@ async fn windows_wifi_fallback_tick(state: &SharedState, seq: u32) {
         update.persons = Some(tracked);
     }
 
+    apply_radar_override(&s, &mut update);
     if let Ok(json) = serde_json::to_string(&update) {
         let _ = s.tx.send(json);
     }
@@ -4888,6 +4890,7 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                         update.persons = Some(tracked);
                     }
 
+                    apply_radar_override(&s, &mut update);
                     if let Ok(json) = serde_json::to_string(&update) {
                         let _ = s.tx.send(json);
                     }
@@ -5213,6 +5216,7 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                         update.persons = Some(tracked);
                     }
 
+                    apply_radar_override(&s, &mut update);
                     if let Ok(json) = serde_json::to_string(&update) {
                         let _ = s.tx.send(json);
                     }
@@ -5378,6 +5382,7 @@ async fn simulated_data_task(state: SharedState, tick_ms: u64) {
         if update.classification.presence {
             s.total_detections += 1;
         }
+        apply_radar_override(&s, &mut update);
         if let Ok(json) = serde_json::to_string(&update) {
             let _ = s.tx.send(json);
         }
@@ -5386,6 +5391,64 @@ async fn simulated_data_task(state: SharedState, tick_ms: u64) {
 }
 
 // ── Broadcast tick task (for ESP32 mode, sends buffered state) ───────────────
+
+/// `node_id` of the ESP32-C6 + MR60BHA2 radar (the south position).
+/// When fresh, the radar is the authoritative source for occupancy + presence —
+/// it sees breathing-rate-grade chest motion directly, whereas the CSI
+/// tracker hallucinates phantom persons from environmental noise.
+const C6_RADAR_NODE_ID: u8 = 4;
+
+/// How long after the radar's last frame we still trust it as authoritative.
+/// Beyond this, fall back to the CSI/tracker estimate.
+const RADAR_AUTHORITATIVE_WINDOW: Duration = Duration::from_secs(5);
+
+/// If Node 4 (C6 radar) has fresh edge_vitals, return its person count as the
+/// canonical value; otherwise return `None` and the caller should fall back to
+/// whatever the CSI pipeline produced. The radar's `n_persons` is clamped to
+/// {0, 1} because the MR60BHA2 is a single-target FMCW sensor — if the
+/// firmware ever reports >1 it's almost certainly side-lobe junk.
+fn radar_authoritative_person_count(state: &AppStateInner) -> Option<usize> {
+    let node = state.node_states.get(&C6_RADAR_NODE_ID)?;
+    let last = node.last_frame_time?;
+    if std::time::Instant::now().duration_since(last) > RADAR_AUTHORITATIVE_WINDOW {
+        return None;
+    }
+    let vitals = node.edge_vitals.as_ref()?;
+    let count = if vitals.presence { 1 } else { 0 };
+    Some(count)
+}
+
+/// Apply the radar-takes-precedence override to a SensingUpdate that's about
+/// to be broadcast. When the C6 radar has fresh edge_vitals, its person count
+/// supersedes the CSI tracker's count (which historically over-counts due to
+/// environmental noise — see the "5 phantom persons" demo issue on
+/// 2026-06-11). When the radar is stale (> RADAR_AUTHORITATIVE_WINDOW), the
+/// update is left untouched and CSI fallback wins.
+///
+/// Call this just before every `tx.send(serde_json::to_string(&update))` so
+/// direct emits (high-rate, CSI frame receive path) and the periodic
+/// broadcast tick alike present the radar-grounded truth.
+fn apply_radar_override(state: &AppStateInner, update: &mut SensingUpdate) {
+    let Some(radar_count) = radar_authoritative_person_count(state) else {
+        return;
+    };
+    update.estimated_persons = Some(radar_count);
+    if let Some(ref mut persons) = update.persons {
+        if persons.len() > radar_count {
+            // Keep highest-confidence tracks so the Skeleton tab still draws
+            // someone when someone is there — just no phantoms.
+            persons.sort_by(|a, b| {
+                b.confidence
+                    .partial_cmp(&a.confidence)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            persons.truncate(radar_count);
+        }
+        if radar_count == 0 {
+            persons.clear();
+        }
+    }
+}
 
 async fn broadcast_tick_task(state: SharedState, tick_ms: u64) {
     let mut interval = tokio::time::interval(Duration::from_millis(tick_ms));
@@ -5402,12 +5465,10 @@ async fn broadcast_tick_task(state: SharedState, tick_ms: u64) {
                 // before each broadcast so a stale latest_update (frozen
                 // payload from a now-offline ESP32) is emitted with
                 // `source: "esp32:offline"` instead of `source: "esp32"`.
-                // The REST `/health` endpoint already does this; before
-                // this fix the WS path was the only consumer that didn't,
-                // so the UI's "LIVE — ESP32 HARDWARE Connected" banner
-                // stayed green long after the hardware went away.
                 let mut tagged = update.clone();
                 tagged.source = s.effective_source();
+                apply_radar_override(&s, &mut tagged);
+
                 if let Ok(json) = serde_json::to_string(&tagged) {
                     let _ = s.tx.send(json);
                 }
