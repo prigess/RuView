@@ -119,6 +119,13 @@ struct RadarState {
     // PRESENCE_STICKY_WINDOW after the last confirmed true reading so the
     // displayed count doesn't oscillate 1→0→1 several times a second.
     last_presence_true_at: Option<Instant>,
+    // Distance-change inference (2026-06-12): the MR60BHA2's `has_target`
+    // requires several seconds of stillness to lock. For walking subjects it
+    // never trips — but `target_distance` updates briefly as the person
+    // passes through the cone. Track the timestamp of the last non-zero
+    // distance change so snapshot() can infer "transient motion" from it.
+    last_distance_change_at: Option<Instant>,
+    last_distance_value: Option<u16>,
     // EMA-smoothed motion energy derived from HR/BR drift between ticks.
     last_hr_seen: Option<f64>,
     last_br_seen: Option<f64>,
@@ -142,6 +149,12 @@ const BR_PLAUSIBLE_MAX_BPM: f64 = 35.0;
 // left the room" detection sluggish.
 const PRESENCE_STICKY_WINDOW: Duration = Duration::from_secs(4);
 
+// MR60BHA2 fallback: if `has_target` hasn't locked but the radar's
+// `target_distance` value is updating, treat that as evidence of someone
+// transiently in the cone (walking through). This window controls how
+// long the inferred presence persists after the last distance change.
+const DISTANCE_MOTION_WINDOW: Duration = Duration::from_secs(3);
+
 impl RadarState {
     fn note_hr(&mut self, v: f64) {
         if (HR_PLAUSIBLE_MIN_BPM..=HR_PLAUSIBLE_MAX_BPM).contains(&v) {
@@ -161,6 +174,19 @@ impl RadarState {
         }
     }
     fn note_dist(&mut self, cm: u16) {
+        // Record a "distance changed" event whenever the value materially
+        // moves AND is non-zero. Used by snapshot() to infer transient
+        // motion when MR60BHA2's strict has_target lock hasn't fired yet.
+        if cm > 0 {
+            let changed = match self.last_distance_value {
+                Some(prev) => prev.abs_diff(cm) >= 5,  // >= 5 cm jump
+                None => true,
+            };
+            if changed {
+                self.last_distance_change_at = Some(Instant::now());
+            }
+            self.last_distance_value = Some(cm);
+        }
         self.target_distance_cm = Some(cm);
     }
     fn note_rssi(&mut self, dbm: i8) {
@@ -188,6 +214,16 @@ impl RadarState {
             // Otherwise: keep person_present=true and keep the live HR/BR/dist
             // values so vitals don't drop to zero through micro-flickers.
         }
+    }
+
+    /// Distance-change inference: if the MR60BHA2's `has_target` hasn't
+    /// locked (so person_present is false), but `target_distance` changed in
+    /// the last DISTANCE_MOTION_WINDOW, treat that as evidence of someone
+    /// walking through the cone. Used by snapshot().
+    fn distance_indicates_motion(&self) -> bool {
+        self.last_distance_change_at
+            .map(|t| Instant::now().duration_since(t) <= DISTANCE_MOTION_WINDOW)
+            .unwrap_or(false)
     }
 
     /// Resolve a current packet snapshot, applying held-value fallback within
@@ -223,16 +259,31 @@ impl RadarState {
             self.last_br_seen = Some(br_out);
         }
 
+        // Distance-motion fallback: when has_target hasn't locked but the
+        // radar IS updating distance, surface presence + motion so the iOS
+        // app shows "someone is walking through" instead of a flat zero.
+        let distance_motion = !self.person_present && self.distance_indicates_motion();
+
+        let effective_present = self.person_present || distance_motion;
         RadarSnapshot {
-            present: self.person_present,
-            motion: self.motion_energy_ema > 0.5,
+            present: effective_present,
+            motion: self.motion_energy_ema > 0.5 || distance_motion,
             heart_rate_bpm: hr_out,
             breath_rate_bpm: br_out,
             target_distance_cm: self.target_distance_cm.unwrap_or(0),
             rssi_dbm: self.wifi_rssi_dbm.unwrap_or(0),
             motion_energy: self.motion_energy_ema,
-            presence_score: if self.person_present { 0.85 } else { 0.05 },
-            n_persons: if self.person_present { 1 } else { 0 },
+            // Lower confidence when presence is inferred from distance changes
+            // alone (no lock-on), so consumers can distinguish radar-grade
+            // presence from walking-through evidence.
+            presence_score: if self.person_present {
+                0.85
+            } else if distance_motion {
+                0.55
+            } else {
+                0.05
+            },
+            n_persons: if effective_present { 1 } else { 0 },
         }
     }
 }
@@ -532,14 +583,13 @@ fn http_loop(
     cfg: C6RadarConfig,
     state: Arc<Mutex<RadarState>>,
     start: Instant,
-    always_emit: bool,
+    mqtt_disabled: bool,
 ) {
-    let label = if always_emit { "HTTP-only" } else { "HTTP fallback" };
+    let label = if mqtt_disabled { "HTTP-only" } else { "HTTP heartbeat" };
     info!(
-        "C6 {label}: polling http://{} every {}ms (quiet-timeout {}s) → UDP 127.0.0.1:{} node={}",
+        "C6 {label}: polling http://{} every {}ms → UDP 127.0.0.1:{} node={}",
         cfg.http_host,
         cfg.http_poll_interval.as_millis(),
-        cfg.mqtt_quiet_timeout.as_secs(),
         cfg.udp_port,
         cfg.node_id
     );
@@ -606,17 +656,15 @@ fn http_loop(
             }
         }
 
-        // Decide whether to emit. In HTTP-only mode always emit. In MQTT-primary
-        // mode only emit if MQTT has been silent for longer than the timeout.
-        let should_emit = if always_emit {
-            true
-        } else {
-            let st = state.lock().unwrap();
-            match st.last_mqtt_seen {
-                None => true,
-                Some(t) => Instant::now().duration_since(t) >= cfg.mqtt_quiet_timeout,
-            }
-        };
+        // Always emit a heartbeat on every poll, regardless of MQTT activity
+        // (2026-06-12 fix). ESPHome dedupes consecutive identical values, so
+        // when the radar's readings are stable there can be multi-second gaps
+        // between MQTT publishes. Without an independent heartbeat the
+        // server's per-node `last_frame_time` grows and the iOS app shows
+        // Node 4 going offline even though everything is healthy. The
+        // duplicate-on-MQTT case is harmless: the UDP receiver just stamps
+        // `last_frame_time` again with the same vitals.
+        let should_emit = true;
 
         if should_emit {
             let snap = state.lock().unwrap().snapshot(Duration::from_secs(20));

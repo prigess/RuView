@@ -5482,6 +5482,29 @@ fn apply_radar_override(state: &AppStateInner, update: &mut SensingUpdate) {
             persons.clear();
         }
     }
+
+    // Override vital_signs from the freshest radar node too. Otherwise S3 CSI
+    // nodes' edge_vitals — which carry CSI-derived HR/BR heuristics that are
+    // wildly off (BR ~8 BPM when the radar measures 21) — overwrite the
+    // global vital_signs slot whenever they emit, since the UDP receiver
+    // updates `s.edge_vitals` regardless of source. By sourcing vital_signs
+    // here from the radar node's own edge_vitals snapshot, the iOS app sees
+    // radar-grade vitals consistently.
+    let now = std::time::Instant::now();
+    for &id in RADAR_NODE_IDS {
+        let Some(node) = state.node_states.get(&id) else { continue };
+        let Some(last) = node.last_frame_time else { continue };
+        if now.duration_since(last) > RADAR_AUTHORITATIVE_WINDOW { continue; }
+        let Some(rv) = node.edge_vitals.as_ref() else { continue };
+        update.vital_signs = Some(VitalSigns {
+            heart_rate_bpm: if rv.heartrate_bpm > 0.0 { Some(rv.heartrate_bpm) } else { None },
+            breathing_rate_bpm: if rv.breathing_rate_bpm > 0.0 { Some(rv.breathing_rate_bpm) } else { None },
+            heartbeat_confidence: if rv.presence { 0.85 } else { 0.0 },
+            breathing_confidence: if rv.presence { 0.85 } else { 0.0 },
+            signal_quality: rv.presence_score as f64,
+        });
+        break;
+    }
 }
 
 async fn broadcast_tick_task(state: SharedState, tick_ms: u64) {
