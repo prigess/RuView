@@ -5,7 +5,7 @@ import SwiftUI
 @main
 @MainActor
 struct RuViewApp: App {
-    @AppStorage("deviceHost") private var deviceHost: String = ""
+    @AppStorage("deviceHost") private var deviceHost: String = "192.168.8.11"
     @AppStorage("appearanceMode") private var appearanceModeRaw: String = AppearanceMode.system.rawValue
     @StateObject private var viewModel = SensingViewModel()
 

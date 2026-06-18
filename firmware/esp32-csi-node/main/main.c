@@ -115,26 +115,11 @@ static void wifi_init_sta(void)
         wifi_config.sta.threshold.authmode = WIFI_AUTH_OPEN;
     }
 
-    /* ADR-PENDING: AP-isolation workaround for the Firefly multi-AP mesh.
-     *
-     * 2026-06-08 — All 3 ESP32-S3 nodes consistently associated to
-     * BSSID 14:22:db:bc:54:a6 ("AP A"), whose client traffic was being
-     * dropped (likely client-isolation enabled or broken uplink to the
-     * Pi's wired subnet). The ESP32-C6 happened to land on BSSID
-     * 14:22:db:bc:7b:e6 ("AP B") and streamed reliably.
-     *
-     * Lock STA association to AP B until the mesh isolation is fixed.
-     * Remove or move to NVS once the upstream router is reconfigured. */
-    {
-        static const uint8_t TARGET_BSSID[6] = {
-            0x14, 0x22, 0xdb, 0xbc, 0x7b, 0xe6  /* AP "B" */
-        };
-        memcpy(wifi_config.sta.bssid, TARGET_BSSID, 6);
-        wifi_config.sta.bssid_set = true;
-        ESP_LOGI(TAG, "WiFi BSSID locked to %02x:%02x:%02x:%02x:%02x:%02x (AP isolation workaround)",
-                 TARGET_BSSID[0], TARGET_BSSID[1], TARGET_BSSID[2],
-                 TARGET_BSSID[3], TARGET_BSSID[4], TARGET_BSSID[5]);
-    }
+    /* 2026-06-17 — BSSID lock removed. The Firefly multi-AP mesh is no
+     * longer in use; the deployment runs on a single-AP router (Beryl
+     * AX3000 / NorimNetwork) without client isolation, so association
+     * to any BSSID on the configured SSID is fine. */
+    wifi_config.sta.bssid_set = false;
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));

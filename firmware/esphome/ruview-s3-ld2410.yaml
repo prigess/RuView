@@ -90,7 +90,7 @@ web_server:
 
 logger:
   level: INFO
-  baud_rate: 115200
+  baud_rate: 115200   # re-enabled — LD2410 moved to UART1 (GPIO17/18), so UART0 is free for USB serial logs
 
 # ── UART to LD2410 (GPIO17/18, 256000 8N1) ─────────────────────────────────
 # 2026-06-11: user's physical wiring has LD2410's TX going to S3 GPIO17 and
@@ -100,11 +100,9 @@ logger:
 # LD2410 TX. Pins swapped accordingly.
 uart:
   id: ld2410_uart
-  tx_pin: GPIO17    # back to original orientation per RuView firmware convention
-  rx_pin: GPIO18
-  # Last-combo check: original pin orientation + 115200 baud.
-  # If this also yields no LD2410 data, the unit is exhaustively confirmed dead.
-  baud_rate: 115200
+  tx_pin: GPIO17    # ESP TX → LD2410 RX (red wire)
+  rx_pin: GPIO18    # ESP RX ← LD2410 TX (purple wire)
+  baud_rate: 115200  # try alternate — some LD2410C batches ship at 115200, not 256000
   parity: NONE
   stop_bits: 1
 

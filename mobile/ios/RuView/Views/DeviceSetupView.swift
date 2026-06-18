@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - DeviceSetupView
 
 struct DeviceSetupView: View {
-    @AppStorage("deviceHost") private var deviceHost: String = ""
+    @AppStorage("deviceHost") private var deviceHost: String = "192.168.8.11"
     @State private var inputHost: String = ""
     @State private var isChecking: Bool = false
     @State private var errorMessage: String?

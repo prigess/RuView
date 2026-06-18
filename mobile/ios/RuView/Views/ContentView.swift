@@ -4,7 +4,7 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var viewModel: SensingViewModel
-    @AppStorage("deviceHost") private var deviceHost: String = ""
+    @AppStorage("deviceHost") private var deviceHost: String = "192.168.8.11"
     @AppStorage("appearanceMode") private var appearanceModeRaw: String = AppearanceMode.system.rawValue
     @State private var selectedTab: Int = 0
     @State private var showingTrainingWizard: Bool = false
