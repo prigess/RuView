@@ -48,28 +48,23 @@ struct OccupancyView: View {
                         .tracking(1.5)
                 }
 
-                Text(String(viewModel.personCount))
-                    .font(.system(size: 92, weight: .bold, design: .rounded))
+                // Binary Present/Empty for the demo — CSI count is noisy
+                // when no radar truth is available, so we hide it and rely
+                // on the more reliable classification.presence signal.
+                Text(viewModel.displayPresence ? "Present" : "Empty")
+                    .font(.system(size: 72, weight: .bold, design: .rounded))
                     .foregroundColor(.white)
-                    .contentTransition(.numericText())
-                    .monospacedDigit()
-                    .frame(minWidth: 120)
+                    .contentTransition(.opacity)
+                    .frame(minWidth: 220)
 
-                Text(viewModel.personCount == 1 ? "Person detected" : "Persons detected")
+                Text("Room status")
                     .font(.title3)
                     .foregroundColor(.white.opacity(0.85))
 
-                if viewModel.personCountHistory.count >= 4 {
-                    MiniSparkline(
-                        values: viewModel.personCountHistory,
-                        color: .white,
-                        lineWidth: 1.8,
-                        showEndDot: true
-                    )
-                    .frame(height: 28)
-                    .padding(.horizontal, 24)
-                    .padding(.top, 4)
-                }
+                // Sparkline removed — it rendered the raw 0↔1 personCount
+                // history, which visually contradicted the sticky "Present"
+                // hero. Bring back a smoothed presence-over-time chart later
+                // once the CSI tracker's hysteresis is tuned.
             }
             .padding(.vertical, 28)
             .padding(.horizontal, 8)
@@ -109,12 +104,17 @@ struct OccupancyView: View {
 
     private var classificationDetails: some View {
         VStack(spacing: 0) {
+            // Use the sticky displayPresence (10s hysteresis) so the
+            // detail row matches the hero. Reading raw classification.presence
+            // here would flap at 10 Hz alongside the classifier oscillation.
             detailRow(label: "Presence",
-                      value: viewModel.snapshot?.classification.presence == true ? "Detected" : "Not detected",
+                      value: viewModel.displayPresence ? "Detected" : "Not detected",
                       icon: "person.fill")
             Divider().padding(.leading, 52)
+            // While the room is held "Present", suppress brief "absent"
+            // motion blips so the row doesn't flap between Active and Absent.
             detailRow(label: "Motion level",
-                      value: viewModel.motionLevel.replacingOccurrences(of: "_", with: " ").capitalized,
+                      value: viewModel.stickyMotionLevelDisplay,
                       icon: "waveform")
             Divider().padding(.leading, 52)
             detailRow(label: "Last tick", value: viewModel.formattedTick, icon: "clock")

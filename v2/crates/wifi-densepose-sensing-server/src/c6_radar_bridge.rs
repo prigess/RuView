@@ -144,10 +144,11 @@ const BR_PLAUSIBLE_MIN_BPM: f64 = 8.0;
 const BR_PLAUSIBLE_MAX_BPM: f64 = 35.0;
 
 // How long to keep reporting `person_present: true` after the radar's last
-// confirmed positive reading. Picked to comfortably outlast the radar's
-// frame-to-frame target re-lock churn (~0.5 - 2 s) without making "person
-// left the room" detection sluggish.
-const PRESENCE_STICKY_WINDOW: Duration = Duration::from_secs(4);
+// confirmed positive reading. 2s comfortably outlasts the radar's typical
+// frame-to-frame lock churn (~0.5-2 s) and keeps walk-out latency tight
+// for the demo. If the iOS view starts flapping during a sit-still test,
+// bump back to 4s. iOS adds its own 3s sticky on top of this.
+const PRESENCE_STICKY_WINDOW: Duration = Duration::from_secs(2);
 
 // MR60BHA2 fallback: if `has_target` hasn't locked but the radar's
 // `target_distance` value is updating, treat that as evidence of someone
@@ -264,7 +265,18 @@ impl RadarState {
         // app shows "someone is walking through" instead of a flat zero.
         let distance_motion = !self.person_present && self.distance_indicates_motion();
 
-        let effective_present = self.person_present || distance_motion;
+        // Vital-signs fallback (2026-06-17): the MR60BHA2 has two parallel
+        // detection paths. With a near-field clutter target (e.g. the bench
+        // 23 cm in front of the antenna), `person_present` stays OFF even
+        // when the radar's heart-rate/breath-rate channels are actively
+        // measuring a real human. Treat HR as presence evidence — but ONLY
+        // HR, not BR. BR alone gets faked by static reflectors (the radar
+        // measures BR off any oscillating reflection); HR requires actual
+        // pulse-rate signal processing that doesn't lock onto furniture.
+        let vitals_evidence = !self.person_present && !distance_motion
+            && hr_out > 0.0;
+
+        let effective_present = self.person_present || distance_motion || vitals_evidence;
         RadarSnapshot {
             present: effective_present,
             motion: self.motion_energy_ema > 0.5 || distance_motion,
@@ -273,11 +285,15 @@ impl RadarState {
             target_distance_cm: self.target_distance_cm.unwrap_or(0),
             rssi_dbm: self.wifi_rssi_dbm.unwrap_or(0),
             motion_energy: self.motion_energy_ema,
-            // Lower confidence when presence is inferred from distance changes
-            // alone (no lock-on), so consumers can distinguish radar-grade
-            // presence from walking-through evidence.
+            // Confidence ladder by detection path:
+            //   person_present  → 0.85  (radar's full target lock)
+            //   vitals only     → 0.70  (HR/BR detected, no target lock)
+            //   distance motion → 0.55  (walking through, no HR yet)
+            //   nothing         → 0.05
             presence_score: if self.person_present {
                 0.85
+            } else if vitals_evidence {
+                0.70
             } else if distance_motion {
                 0.55
             } else {

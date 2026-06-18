@@ -5433,6 +5433,19 @@ const RADAR_AUTHORITATIVE_WINDOW: Duration = Duration::from_secs(5);
 /// max across radars is used (so an LD2410 catching someone the MR60
 /// missed, or vice versa, still surfaces as "1 person").
 fn radar_authoritative_person_count(state: &AppStateInner) -> Option<usize> {
+    // Demo escape hatch (2026-06-17): the MR60BHA2 has a narrow ±60° FoV
+    // and ~3 m range, so unless it's aimed perfectly at the demo subject
+    // it reports target_count=0 and forces the iOS app to show 0 Persons.
+    // Setting `RUVIEW_RADAR_AUTHORITATIVE=false` returns None here so the
+    // CSI tracker's person count wins. Layer 2 defensive consistency in
+    // apply_radar_override still runs — no "presence-false but persons>0"
+    // contradictions can leak through.
+    if std::env::var("RUVIEW_RADAR_AUTHORITATIVE")
+        .map(|v| v.eq_ignore_ascii_case("false") || v == "0")
+        .unwrap_or(false)
+    {
+        return None;
+    }
     let now = std::time::Instant::now();
     let mut any_fresh = false;
     let mut any_present = false;
@@ -5463,47 +5476,106 @@ fn radar_authoritative_person_count(state: &AppStateInner) -> Option<usize> {
 /// direct emits (high-rate, CSI frame receive path) and the periodic
 /// broadcast tick alike present the radar-grounded truth.
 fn apply_radar_override(state: &AppStateInner, update: &mut SensingUpdate) {
-    let Some(radar_count) = radar_authoritative_person_count(state) else {
-        return;
-    };
-    update.estimated_persons = Some(radar_count);
-    if let Some(ref mut persons) = update.persons {
-        if persons.len() > radar_count {
-            // Keep highest-confidence tracks so the Skeleton tab still draws
-            // someone when someone is there — just no phantoms.
-            persons.sort_by(|a, b| {
-                b.confidence
-                    .partial_cmp(&a.confidence)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-            persons.truncate(radar_count);
-        }
+    // ── Layer 1: radar-authoritative count + vital_signs override ──
+    // When at least one radar node has fresh edge_vitals, its presence flag
+    // becomes the ground-truth occupancy count, overriding the CSI tracker.
+    if let Some(radar_count) = radar_authoritative_person_count(state) {
+        update.estimated_persons = Some(radar_count);
+
+        // Force classification to match radar truth. Without this, CSI false
+        // positives (75% empty-room presence=true measured 2026-06-17) leak
+        // through and produce contradictions like "0 Persons detected /
+        // Presence: Detected / Motion: Active" in the iOS Occupancy view.
         if radar_count == 0 {
+            update.classification.presence = false;
+            update.classification.motion_level = "absent".to_string();
+            update.classification.confidence = 0.85;
+        } else {
+            update.classification.presence = true;
+            if update.classification.motion_level == "absent" {
+                update.classification.motion_level = "present_still".to_string();
+            }
+            update.classification.confidence = 0.85;
+        }
+
+        if let Some(ref mut persons) = update.persons {
+            if persons.len() > radar_count {
+                // Keep highest-confidence tracks so the Skeleton tab still draws
+                // someone when someone is there — just no phantoms.
+                persons.sort_by(|a, b| {
+                    b.confidence
+                        .partial_cmp(&a.confidence)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                persons.truncate(radar_count);
+            }
+            if radar_count == 0 {
+                persons.clear();
+            }
+        }
+
+        // Override vital_signs from the freshest radar node too. Otherwise S3 CSI
+        // nodes' edge_vitals — which carry CSI-derived HR/BR heuristics that are
+        // wildly off (BR ~8 BPM when the radar measures 21) — overwrite the
+        // global vital_signs slot whenever they emit, since the UDP receiver
+        // updates `s.edge_vitals` regardless of source. By sourcing vital_signs
+        // here from the radar node's own edge_vitals snapshot, the iOS app sees
+        // radar-grade vitals consistently.
+        let now = std::time::Instant::now();
+        for &id in RADAR_NODE_IDS {
+            let Some(node) = state.node_states.get(&id) else { continue };
+            let Some(last) = node.last_frame_time else { continue };
+            if now.duration_since(last) > RADAR_AUTHORITATIVE_WINDOW { continue; }
+            let Some(rv) = node.edge_vitals.as_ref() else { continue };
+            update.vital_signs = Some(VitalSigns {
+                heart_rate_bpm: if rv.heartrate_bpm > 0.0 { Some(rv.heartrate_bpm) } else { None },
+                breathing_rate_bpm: if rv.breathing_rate_bpm > 0.0 { Some(rv.breathing_rate_bpm) } else { None },
+                heartbeat_confidence: if rv.presence { 0.85 } else { 0.0 },
+                breathing_confidence: if rv.presence { 0.85 } else { 0.0 },
+                signal_quality: rv.presence_score as f64,
+            });
+            break;
+        }
+    }
+
+    // ── Layer 2: defensive consistency clamp ──────────────────────
+    // Even if the radar override returned early (radar stale, no fresh frames),
+    // an internally inconsistent snapshot — where classification.presence is
+    // false but estimated_persons or persons[] is non-zero — must never reach
+    // the iOS app. This is the bug that produced the "1 Person detected" /
+    // "Presence: Not detected" contradiction on 2026-06-16: the CSI person
+    // tracker kept hallucinating a track even after motion_level dropped to
+    // absent. Force the snapshot to be self-consistent here.
+    if !update.classification.presence {
+        update.estimated_persons = Some(0);
+        if let Some(ref mut persons) = update.persons {
             persons.clear();
         }
     }
 
-    // Override vital_signs from the freshest radar node too. Otherwise S3 CSI
-    // nodes' edge_vitals — which carry CSI-derived HR/BR heuristics that are
-    // wildly off (BR ~8 BPM when the radar measures 21) — overwrite the
-    // global vital_signs slot whenever they emit, since the UDP receiver
-    // updates `s.edge_vitals` regardless of source. By sourcing vital_signs
-    // here from the radar node's own edge_vitals snapshot, the iOS app sees
-    // radar-grade vitals consistently.
-    let now = std::time::Instant::now();
-    for &id in RADAR_NODE_IDS {
-        let Some(node) = state.node_states.get(&id) else { continue };
-        let Some(last) = node.last_frame_time else { continue };
-        if now.duration_since(last) > RADAR_AUTHORITATIVE_WINDOW { continue; }
-        let Some(rv) = node.edge_vitals.as_ref() else { continue };
-        update.vital_signs = Some(VitalSigns {
-            heart_rate_bpm: if rv.heartrate_bpm > 0.0 { Some(rv.heartrate_bpm) } else { None },
-            breathing_rate_bpm: if rv.breathing_rate_bpm > 0.0 { Some(rv.breathing_rate_bpm) } else { None },
-            heartbeat_confidence: if rv.presence { 0.85 } else { 0.0 },
-            breathing_confidence: if rv.presence { 0.85 } else { 0.0 },
-            signal_quality: rv.presence_score as f64,
-        });
-        break;
+    // ── Layer 3: single-occupancy clamp (2026-06-17) ──────────────
+    // Elder-care monitoring assumes ≤1 person. When the radar-authoritative
+    // override is disabled (demo geometry doesn't put C6 in the subject's
+    // line of sight), the CSI tracker over-counts wildly — flapping 0↔5 in
+    // adjacent frames. Cap at 1 when presence is true, and trim persons[]
+    // to the highest-confidence track so the Skeleton view still shows a
+    // body. Remove this when the tracker's hysteresis is properly tuned.
+    if update.classification.presence {
+        if update.estimated_persons.unwrap_or(0) > 1 {
+            update.estimated_persons = Some(1);
+        }
+        if update.estimated_persons.unwrap_or(0) == 0 {
+            update.estimated_persons = Some(1);
+        }
+        if let Some(ref mut persons) = update.persons {
+            if persons.len() > 1 {
+                persons.sort_by(|a, b| {
+                    b.confidence.partial_cmp(&a.confidence)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                persons.truncate(1);
+            }
+        }
     }
 }
 

@@ -15,11 +15,12 @@ final class SensingViewModel: ObservableObject {
     @Published var radarReading: C6RadarReading?
     @Published var radarReachable: Bool = false
 
-    /// IP address of the ESP32-C6 ESPHome node. Defaults to the lab device.
-    /// Stored in UserDefaults under "c6RadarHost" so a future settings screen
-    /// can edit it without changing this class.
+    /// IP address of the ESP32-C6 ESPHome node. Defaults to the current
+    /// NorimNetwork DHCP lease; flip to the static reservation once it's
+    /// pinned in the router. Stored in UserDefaults under "c6RadarHost"
+    /// so a future settings screen can edit it without changing this class.
     private var c6RadarHost: String {
-        UserDefaults.standard.string(forKey: "c6RadarHost") ?? "192.168.7.223"
+        UserDefaults.standard.string(forKey: "c6RadarHost") ?? "192.168.8.192"
     }
 
     // MARK: - Published state mirrored from client
@@ -81,6 +82,23 @@ final class SensingViewModel: ObservableObject {
     private var pendingPersonCountStreak: Int = 0
     private let personCountStabilityFrames: Int = 4
 
+    // Sticky binary presence — the raw classification.presence flag flaps at
+    // up to 10 Hz near the classifier's confidence threshold, and a person
+    // sitting still or briefly outside one node's FoV can produce 1-2s of
+    // false-absent. For the Occupancy hero, we use two rules:
+    //
+    //   1. Empty → Present is immediate (a positive detection is never hidden).
+    //   2. Present → Empty requires `presenceStickyDuration` seconds of
+    //      *continuous* absent classification AND motion_level == "absent".
+    //      Any movement keeps the room "Present" regardless of presence flag.
+    //
+    // 3s is the compromise (was 10s, felt laggy on leave). Long enough to
+    // ride out radar lock-churn while the person is still there, short
+    // enough that the leave transition reads as "responsive" in the demo.
+    @Published var displayPresence: Bool = false
+    private var lastEvidenceOfPresenceAt: Date?
+    private let presenceStickyDuration: TimeInterval = 3.0
+
     // MARK: - Known-good value fallback
     //
     // When the live reading is unreliable (low confidence or out of physiologic
@@ -98,6 +116,11 @@ final class SensingViewModel: ObservableObject {
     private let heldValueMaxAge: TimeInterval = 300   // 5 minutes
 
     // MARK: - Polling tasks
+    // Single source of truth for REST poll cadence. NodeHealthView reads
+    // these to render its "Refreshes every Ns" footer so the label can't
+    // drift from the actual interval.
+    let nodesPollIntervalSeconds: TimeInterval = 1.0
+    let zonesPollIntervalSeconds: TimeInterval = 2.0
     private var nodesPollTask: Task<Void, Never>?
     private var zonesPollTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
@@ -135,6 +158,10 @@ final class SensingViewModel: ObservableObject {
                 self.updateLiveDataFlag(snap)
                 if let v = snap?.vitalSigns { self.updateVitalHistory(v) }
                 self.updateStablePersonCount(snap?.estimatedPersons)
+                self.updateStablePresence(
+                    presence: snap?.classification.presence,
+                    motionLevel: snap?.classification.motionLevel
+                )
                 self.commitDisplayVitals(confidence: snap?.vitalSigns)
                 self.sampleHistories(snap)
             }
@@ -222,20 +249,22 @@ final class SensingViewModel: ObservableObject {
 
     private func startNodesPolling() {
         nodesPollTask?.cancel()
+        let interval = nodesPollIntervalSeconds
         nodesPollTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refreshNodes()
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
             }
         }
     }
 
     private func startZonesPolling() {
         zonesPollTask?.cancel()
+        let interval = zonesPollIntervalSeconds
         zonesPollTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refreshZones()
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
             }
         }
     }
@@ -289,8 +318,16 @@ final class SensingViewModel: ObservableObject {
     // MARK: - Derived computed properties
 
     var personCount: Int {
+        // Defensive consistency clamp: if classification.presence is explicitly
+        // false, the count MUST be 0. Prevents the "1 Person detected" /
+        // "Presence: Not detected" contradiction the user caught on 2026-06-16
+        // (server-side fix is in main.rs::apply_radar_override layer 2; this is
+        // belt-and-suspenders for any edge case that slips through).
+        if let presence = snapshot?.classification.presence, !presence {
+            return 0
+        }
         // Use hysteresis-stabilized count so the big number doesn't flicker.
-        displayPersonCount
+        return displayPersonCount
     }
 
     var motionLevel: String {
@@ -299,6 +336,16 @@ final class SensingViewModel: ObservableObject {
 
     var motionLevelDisplay: String {
         motionLevel.motionLevelDisplay
+    }
+
+    /// Motion level shown next to the sticky presence indicator. While the
+    /// room is held "Present" (10s hysteresis), brief "absent" motion blips
+    /// are upgraded to "present_still" so the detail row matches the hero.
+    var stickyMotionLevelDisplay: String {
+        if displayPresence && motionLevel == "absent" {
+            return "Present still".replacingOccurrences(of: "_", with: " ")
+        }
+        return motionLevel.replacingOccurrences(of: "_", with: " ").capitalized
     }
 
     var overallConfidence: Double {
@@ -522,16 +569,43 @@ final class SensingViewModel: ObservableObject {
         }
     }
 
+    /// Sticky binary presence. Logic:
+    ///   - presence=true OR motion != "absent" → evidence of a person; refresh
+    ///     the timestamp and force display=Present immediately.
+    ///   - presence=false AND motion == "absent" → only commit display=Empty
+    ///     after `presenceStickyDuration` of *continuous* such evidence.
+    /// This handles the elder-care case where the person is sitting still
+    /// (presence flag may flicker, motion may briefly read absent) without
+    /// reporting them as having left the room.
+    private func updateStablePresence(presence: Bool?, motionLevel: String?) {
+        let pres = presence ?? false
+        let motion = motionLevel ?? "absent"
+        let hasEvidence = pres || motion != "absent"
+        if hasEvidence {
+            lastEvidenceOfPresenceAt = Date()
+            if !displayPresence { displayPresence = true }
+            return
+        }
+        // No evidence this frame. Hold the previous state until the sticky
+        // window has elapsed since the last positive evidence.
+        guard let last = lastEvidenceOfPresenceAt else {
+            if displayPresence { displayPresence = false }
+            return
+        }
+        if Date().timeIntervalSince(last) >= presenceStickyDuration {
+            if displayPresence { displayPresence = false }
+        }
+    }
+
     private func updateVitalHistory(_ vitals: VitalSigns) {
         let a = emaAlpha
-        // Gate EMA updates on minimum confidence — prevents garbage samples
-        // from polluting the smoothed value during failures so the held value
-        // we eventually show is the real last-good reading, not noise drift.
-        if vitals.heartbeatConfidence >= 0.3 {
-            emaHeartRate = emaHeartRate.map { a * vitals.heartRateBpm + (1 - a) * $0 } ?? vitals.heartRateBpm
+        // Gate EMA updates on minimum confidence AND a non-nil sample —
+        // the server sends nil HR/BR while no person is tracked.
+        if vitals.heartbeatConfidence >= 0.3, let hr = vitals.heartRateBpm {
+            emaHeartRate = emaHeartRate.map { a * hr + (1 - a) * $0 } ?? hr
         }
-        if vitals.breathingConfidence >= 0.3 {
-            emaBreathing = emaBreathing.map { a * vitals.breathingRateBpm + (1 - a) * $0 } ?? vitals.breathingRateBpm
+        if vitals.breathingConfidence >= 0.3, let br = vitals.breathingRateBpm {
+            emaBreathing = emaBreathing.map { a * br + (1 - a) * $0 } ?? br
         }
     }
 

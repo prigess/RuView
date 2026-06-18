@@ -438,9 +438,15 @@ pub fn extract_features_from_frame(
             .clamp(0.0, 1.0)
     };
 
-    let variance_motion = (temporal_variance / 10.0).clamp(0.0, 1.0);
-    let mbp_motion = (motion_band_power / 25.0).clamp(0.0, 1.0);
-    let cp_motion = (change_points as f64 / 15.0).clamp(0.0, 1.0);
+    // 2026-06-17: re-scaled normalizers based on empirical bench-cluster data.
+    // The previous divisors (10 / 25 / 15) assumed an SNR regime where these
+    // features sat in the 0..15 range. In practice motion_band_power lives
+    // in 60..300 and the prior divisor saturated mbp_motion at 1.0 always,
+    // making motion_score a constant ~0.25 floor regardless of activity.
+    // New divisors put empty-room values near 0 and active motion near 1.
+    let variance_motion = (temporal_variance / 200.0).clamp(0.0, 1.0);
+    let mbp_motion = (motion_band_power / 400.0).clamp(0.0, 1.0);
+    let cp_motion = (change_points as f64 / 30.0).clamp(0.0, 1.0);
     let motion_score = (temporal_motion_score * 0.4
         + variance_motion * 0.2
         + mbp_motion * 0.25
@@ -467,7 +473,10 @@ pub fn extract_features_from_frame(
 
     let raw_classification = ClassificationInfo {
         motion_level: raw_classify(motion_score),
-        presence: motion_score > 0.04,
+        // Raised from 0.04 → 0.10 (2026-06-17) — bench-cluster noise floor
+        // was reaching 0.08 with empty room, causing constant false-positive
+        // presence. Re-tune after wall deployment / proper calibration.
+        presence: motion_score > 0.10,
         confidence: (0.4 + signal_quality * 0.3 + motion_score * 0.3).clamp(0.0, 1.0),
     };
 
@@ -483,10 +492,13 @@ pub fn extract_features_from_frame(
 // ── Classification ──────────────────────────────────────────────────────────
 
 pub fn raw_classify(score: f64) -> String {
-    // Lowered thresholds for more sensitive detection (demo improvements)
-    if score > 0.20 { "active".into() }          // was 0.25
-    else if score > 0.08 { "present_moving".into() } // was 0.12
-    else if score > 0.025 { "present_still".into() } // was 0.04
+    // 2026-06-17: raised ~3× to suppress false positives from bench-cluster
+    // RF noise floor (empty room was consistently scoring 0.08-0.15).
+    // Original demo-tuned values (0.025 / 0.08 / 0.20) commented next to each.
+    // Re-calibrate after wall deployment with the empty-room calibration endpoint.
+    if score > 0.60 { "active".into() }            // was 0.20
+    else if score > 0.25 { "present_moving".into() } // was 0.08
+    else if score > 0.10 { "present_still".into() } // was 0.025
     else { "absent".into() }
 }
 
@@ -521,7 +533,8 @@ pub fn smooth_and_classify(
         state.debounce_counter = 1;
     }
     raw.motion_level = state.current_motion_level.clone();
-    raw.presence = sm > 0.03;
+    // Raised from 0.03 → 0.08 (2026-06-17) — see comment in raw_classify().
+    raw.presence = sm > 0.08;
     raw.confidence = (0.4 + sm * 0.6).clamp(0.0, 1.0);
 }
 

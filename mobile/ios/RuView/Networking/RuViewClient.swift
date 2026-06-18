@@ -21,10 +21,23 @@ final class RuViewClient: ObservableObject {
     private let maxBackoff: TimeInterval = 30.0
     private var isDisconnecting = false
 
-    // Stale detection
+    // Stale detection — when only the C6 is streaming (~1 Hz MQTT-driven),
+    // the server re-broadcasts the same tick value ~10× before a fresh
+    // source frame increments it. Counting "unchanged ticks" is therefore
+    // useless; we instead track wall-clock time since the last *unique*
+    // tick value and only declare signal-lost if no new tick arrived for
+    // `staleThresholdSeconds`.
     private var lastTickSeen: Int = -1
-    private var consecutiveUnchangedTicks: Int = 0
+    private var lastUniqueTickAt: Date = Date()
+    private let staleThresholdSeconds: TimeInterval = 3.0
     @Published var isSignalLost: Bool = false
+
+    // Publish throttle — server emits at 10 Hz, but UI doesn't need that.
+    // We always decode every frame (to keep TCP receive draining) but only
+    // assign to @Published at most every `publishMinIntervalMs` to avoid
+    // thrashing MainActor with 10 SwiftUI re-renders per second.
+    private var lastPublishedAt: Date = .distantPast
+    private let publishMinIntervalMs: Double = 200  // ≈5 Hz UI updates
 
     init() {
         let config = URLSessionConfiguration.default
@@ -38,10 +51,13 @@ final class RuViewClient: ObservableObject {
 
     func connect(host: String) {
         guard !host.isEmpty else { return }
+        // Same host + already connected: idempotent, skip.
+        if host == self.host, wsTask != nil { return }
         self.host = host
         isDisconnecting = false
         backoffDelay = 1.0
         cancelReconnect()
+        closeWebSocket()
         openWebSocket()
     }
 
@@ -61,6 +77,11 @@ final class RuViewClient: ObservableObject {
             connectionError = "Invalid server address"
             return
         }
+
+        // Always tear down any prior task before opening a new one — the
+        // reconnect path bypasses connect(host:), so the only safe place
+        // to enforce single-socket invariant is here.
+        closeWebSocket()
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
@@ -114,27 +135,42 @@ final class RuViewClient: ObservableObject {
         let decoder = JSONDecoder()
         do {
             let parsed = try decoder.decode(SensingSnapshot.self, from: data)
-            snapshot = parsed
-            isConnected = true
-            connectionError = nil
-            checkStaleness(tick: parsed.tick)
+            // Connection liveness is updated on every frame so the
+            // "connected" indicator reacts immediately — but the heavier
+            // @Published snapshot (which triggers SwiftUI tree updates)
+            // is rate-limited to keep MainActor responsive.
+            if !isConnected {
+                isConnected = true
+                connectionError = nil
+            }
             backoffDelay = 1.0
+            checkStaleness(tick: parsed.tick)
+            let now = Date()
+            if now.timeIntervalSince(lastPublishedAt) * 1000 >= publishMinIntervalMs {
+                snapshot = parsed
+                lastPublishedAt = now
+            }
         } catch {
-            // Non-fatal: server may send non-snapshot messages
+            // Decode failure means the wire schema drifted from the iOS
+            // model — log it so the next mismatch isn't silent.
+            NSLog("RuView WS decode failed: %@; sample=%@",
+                  String(describing: error),
+                  String(text.prefix(200)))
         }
     }
 
     private func checkStaleness(tick: Int) {
-        if tick == lastTickSeen {
-            consecutiveUnchangedTicks += 1
-            // ~10 unchanged ticks ≈ 1s — long enough to ignore micro-blips
-            if consecutiveUnchangedTicks >= 10 {
-                isSignalLost = true
-            }
-        } else {
+        if tick != lastTickSeen {
             lastTickSeen = tick
-            consecutiveUnchangedTicks = 0
-            isSignalLost = false
+            lastUniqueTickAt = Date()
+            if isSignalLost { isSignalLost = false }
+        } else {
+            // Duplicate tick. Only flag stale once we haven't seen a new
+            // tick value for the full threshold — accommodates low-rate
+            // sources like C6 MQTT (~1 Hz) without false-positive lost.
+            if Date().timeIntervalSince(lastUniqueTickAt) >= staleThresholdSeconds {
+                if !isSignalLost { isSignalLost = true }
+            }
         }
     }
 

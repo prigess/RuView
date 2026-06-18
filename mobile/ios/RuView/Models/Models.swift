@@ -43,8 +43,9 @@ struct Classification: Decodable {
 // MARK: - Vital Signs
 
 struct VitalSigns: Decodable {
-    let heartRateBpm: Double
-    let breathingRateBpm: Double
+    // Server sends null for HR/BR when no person is being tracked.
+    let heartRateBpm: Double?
+    let breathingRateBpm: Double?
     let heartbeatConfidence: Double
     let breathingConfidence: Double
     let signalQuality: Double
