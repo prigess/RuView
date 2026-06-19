@@ -144,11 +144,11 @@ const BR_PLAUSIBLE_MIN_BPM: f64 = 8.0;
 const BR_PLAUSIBLE_MAX_BPM: f64 = 35.0;
 
 // How long to keep reporting `person_present: true` after the radar's last
-// confirmed positive reading. 2s comfortably outlasts the radar's typical
-// frame-to-frame lock churn (~0.5-2 s) and keeps walk-out latency tight
-// for the demo. If the iOS view starts flapping during a sit-still test,
-// bump back to 4s. iOS adds its own 3s sticky on top of this.
-const PRESENCE_STICKY_WINDOW: Duration = Duration::from_secs(2);
+// confirmed positive reading. 1s is aggressive — it does NOT fully outlast
+// the radar's worst-case lock churn (~2 s), so brief sit-still drops will
+// punch through. iOS adds its own 2s sticky on top, so total walk-out
+// latency is ~3 s. Bump back to 2s if flapping shows up in demos.
+const PRESENCE_STICKY_WINDOW: Duration = Duration::from_secs(1);
 
 // MR60BHA2 fallback: if `has_target` hasn't locked but the radar's
 // `target_distance` value is updating, treat that as evidence of someone
@@ -265,16 +265,18 @@ impl RadarState {
         // app shows "someone is walking through" instead of a flat zero.
         let distance_motion = !self.person_present && self.distance_indicates_motion();
 
-        // Vital-signs fallback (2026-06-17): the MR60BHA2 has two parallel
-        // detection paths. With a near-field clutter target (e.g. the bench
-        // 23 cm in front of the antenna), `person_present` stays OFF even
-        // when the radar's heart-rate/breath-rate channels are actively
-        // measuring a real human. Treat HR as presence evidence — but ONLY
-        // HR, not BR. BR alone gets faked by static reflectors (the radar
-        // measures BR off any oscillating reflection); HR requires actual
-        // pulse-rate signal processing that doesn't lock onto furniture.
+        // Vital-signs fallback (2026-06-17, refined 2026-06-18): MR60BHA2 has
+        // two parallel detection paths. With near-field clutter (e.g. bench
+        // at 23 cm), `person_present` stays OFF even when the radar's HR
+        // channel is actively measuring a real human. Treat HR as presence
+        // evidence — but ONLY a *live* HR (`self.heart_rate_bpm.is_some()`),
+        // not the held-value fallback. The held fallback is meant to keep
+        // the displayed BPM stable across radar's frame-to-frame gaps; using
+        // it as presence evidence would keep us "Present" for the full 20-second
+        // held_max_age after the person actually walked out.
         let vitals_evidence = !self.person_present && !distance_motion
-            && hr_out > 0.0;
+            && self.heart_rate_bpm.is_some()
+            && self.heart_rate_bpm.unwrap_or(0.0) > 0.0;
 
         let effective_present = self.person_present || distance_motion || vitals_evidence;
         RadarSnapshot {

@@ -92,12 +92,14 @@ final class SensingViewModel: ObservableObject {
     //      *continuous* absent classification AND motion_level == "absent".
     //      Any movement keeps the room "Present" regardless of presence flag.
     //
-    // 3s is the compromise (was 10s, felt laggy on leave). Long enough to
-    // ride out radar lock-churn while the person is still there, short
-    // enough that the leave transition reads as "responsive" in the demo.
+    // 1s sticky after no evidence (was 2s, was 3s, was 10s). Combined
+    // with the bridge's 1s PRESENCE_STICKY_WINDOW gives a ~2s walk-out
+    // worst-case. The bridge already absorbs the radar's frame-to-frame
+    // lock churn (~1.3s avg, 1.9s p100 in bench data), so this view-layer
+    // sticky now just smooths over single-tick gaps.
     @Published var displayPresence: Bool = false
     private var lastEvidenceOfPresenceAt: Date?
-    private let presenceStickyDuration: TimeInterval = 3.0
+    private let presenceStickyDuration: TimeInterval = 1.0
 
     // MARK: - Known-good value fallback
     //
