@@ -43,7 +43,30 @@ case "$1" in
                 echo "[ruview-sensing] WARNING: NPU setup non-fatal failure; service will still start without NPU acceleration."
         fi
 
-        # 5. Reload systemd, enable and (re)start the service.
+        # 5. Configure + enable mosquitto if installed (Recommends pulls it
+        #    in unless --no-install-recommends). Bridge connects via
+        #    127.0.0.1:1883; ESPHome C6 nodes publish via the LAN IP. Default
+        #    Ubuntu mosquitto refuses anonymous + localhost-only, so we drop
+        #    in a permissive LAN config.
+        if [ -x /usr/sbin/mosquitto ] || command -v mosquitto >/dev/null 2>&1; then
+            install -d -m 0755 /etc/mosquitto/conf.d
+            if [ ! -f /etc/mosquitto/conf.d/ruview.conf ]; then
+                cat >/etc/mosquitto/conf.d/ruview.conf <<'EOF'
+# Installed by ruview-sensing — local LAN broker for C6 radar bridge.
+# Bind on all interfaces (loopback for the bridge, wlan0 for ESPHome nodes).
+listener 1883 0.0.0.0
+allow_anonymous true
+EOF
+                echo "[ruview-sensing] wrote /etc/mosquitto/conf.d/ruview.conf"
+            fi
+            if [ -d /run/systemd/system ]; then
+                systemctl enable mosquitto.service >/dev/null 2>&1 || true
+                systemctl restart mosquitto.service || \
+                    echo "[ruview-sensing] WARNING: mosquitto restart failed; C6 radar bridge will retry."
+            fi
+        fi
+
+        # 6. Reload systemd, enable and (re)start the service.
         if [ -d /run/systemd/system ]; then
             systemctl daemon-reload
             systemctl enable ruview-sensing.service >/dev/null 2>&1 || true
