@@ -52,6 +52,17 @@ final class SensingViewModel: ObservableObject {
         UserDefaults.standard.string(forKey: "micHost") ?? "192.168.7.151"
     }
 
+    /// The LD2450 can only be trusted to *count* once its antenna is attached.
+    /// Antenna-less, it emits stable ghost targets at arbitrary in-range
+    /// positions (observed at 2–7 m) that no spatial filter can separate from a
+    /// real person — so until the antenna is on we treat the LD2450 as a
+    /// diagnostic plot only and count from the reliable presence sensors
+    /// (LD2410C + C6). Flip this UserDefaults flag to true once the antenna is
+    /// attached to re-enable true multi-target counting.
+    var ld2450AntennaConnected: Bool {
+        UserDefaults.standard.bool(forKey: "ld2450AntennaConnected")
+    }
+
     // MARK: - Published state mirrored from client
     @Published var snapshot: SensingSnapshot?
     @Published var isConnected: Bool = false
@@ -425,23 +436,30 @@ final class SensingViewModel: ObservableObject {
     //     the room "occupied" when the LD2450 momentarily drops a still person.
     //   • Vitals come from the live C6 when reachable, else the server snapshot.
 
-    /// Any live sensor currently sees a person.
+    /// Any live sensor currently sees a person. The LD2450 only contributes
+    /// once its antenna is attached (otherwise its ghost targets would fake
+    /// presence in an empty room).
     var anyPresenceEvidence: Bool {
-        if ld2450Reachable, (ld2450Reading?.targetCount ?? 0) > 0 { return true }
+        if ld2450AntennaConnected, ld2450Reachable, (ld2450Reading?.targetCount ?? 0) > 0 { return true }
         if ld2410Reachable, ld2410Reading?.personPresent == true { return true }
         if radarReachable, radarReading?.personPresent == true { return true }
         return false
     }
 
-    /// Fused occupant count: the LD2450's true count, but never below 1 while
-    /// another sensor still reports presence. Falls back to the server count
-    /// when no radar is reachable.
+    /// Fused occupant count. Trust the LD2450's true multi-target count only
+    /// when its antenna is attached; until then it hallucinates ghosts, so the
+    /// count comes from the single-occupancy presence sensors (LD2410C + C6),
+    /// which can only report 0 or 1. Server count is the last-resort fallback.
     var fusedOccupantCount: Int {
-        if ld2450Reachable, let r = ld2450Reading {
+        if ld2450AntennaConnected, ld2450Reachable, let r = ld2450Reading {
             if r.targetCount > 0 { return r.targetCount }
             return anyPresenceEvidence ? 1 : 0
         }
-        if anyPresenceEvidence { return max(1, personCount) }
+        // Direct presence sensors are single-occupancy: 0 or 1, no ghosts.
+        if ld2410Reachable || radarReachable {
+            return anyPresenceEvidence ? 1 : 0
+        }
+        // No direct sensors reachable — fall back to the server's count.
         return personCount
     }
 

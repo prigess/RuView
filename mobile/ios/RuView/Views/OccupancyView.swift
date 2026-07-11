@@ -120,28 +120,20 @@ struct OccupancyView: View {
             SectionHeader(title: "Live Tracking", trailing: "LD2450 radar")
             VStack(spacing: 16) {
                 HStack(alignment: .center, spacing: 12) {
-                    if reading.targetCount > 0 {
-                        Text("\(reading.targetCount)")
+                    // Show the FUSED count (same as the hero) so the two never
+                    // contradict. The raw radar returns live in the plot below.
+                    let shown = viewModel.radarOccupantCount
+                    if shown > 0 {
+                        Text("\(shown)")
                             .font(.system(size: 46, weight: .bold, design: .rounded))
                             .foregroundColor(.healthText)
                             .monospacedDigit()
                             .contentTransition(.numericText())
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(reading.targetCount == 1 ? "person tracked" : "people tracked")
+                            Text(shown == 1 ? "person tracked" : "people tracked")
                                 .font(.callout).foregroundColor(.healthSub)
                             Text("\(reading.movingCount) moving")
                                 .font(.caption).foregroundColor(.healthSub.opacity(0.7))
-                        }
-                    } else if viewModel.anyPresenceEvidence {
-                        // Someone's in the room (hero shows them) but the radar
-                        // can't localize them — keep this coherent with the hero.
-                        Image(systemName: "figure.stand")
-                            .font(.system(size: 30)).foregroundColor(.steel)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Person present")
-                                .font(.callout).fontWeight(.semibold).foregroundColor(.healthText)
-                            Text("Position not resolved by radar")
-                                .font(.caption).foregroundColor(.healthSub)
                         }
                     } else {
                         Text("0")
@@ -159,7 +151,13 @@ struct OccupancyView: View {
                 }
                 LD2450RadarPlot(targets: reading.targets)
                     .frame(height: 230)
-                if reading.targets.isEmpty {
+                if !viewModel.ld2450AntennaConnected {
+                    // Antenna off: the plot may show ghost returns. Be explicit
+                    // that the trusted count comes from the presence sensors.
+                    Text("Raw radar returns — LD2450 antenna not attached, so extra dots may be ghosts. Count above is from the presence sensors.")
+                        .font(.caption).foregroundColor(.healthSub.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                } else if reading.targets.isEmpty {
                     Text(viewModel.anyPresenceEvidence
                          ? "Detected by presence sensor — outside the radar's localization range"
                          : "No targets in radar view")
@@ -168,7 +166,7 @@ struct OccupancyView: View {
                 }
             }
             .ruCard()
-            .animation(.easeOut(duration: 0.25), value: reading.targetCount)
+            .animation(.easeOut(duration: 0.25), value: viewModel.radarOccupantCount)
         }
     }
 
