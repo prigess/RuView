@@ -231,6 +231,41 @@ final class LD2450Client: ObservableObject {
     private let maxRangeMeters: Double = 6.0
     private let reachableMaxFailures: Int = 3
 
+    // Count stabilisation (mirrors the server bridge). Two tracks closer than
+    // `desplitMeters` are one person the radar split in the near field; a raised
+    // count must persist `countPersist` polls before we report it (kills 1→2→1
+    // flicker), while drops apply immediately so walk-out stays fast.
+    private let desplitMeters: Double = 0.7
+    private let countPersist: Int = 3
+    private var lastStableCount: Int = 0
+    private var countCandidate: Int = 0
+    private var countStreak: Int = 0
+
+    /// Collapse targets closer than `desplitMeters` into one cluster.
+    private func desplitCount(_ ts: [LD2450Target]) -> Int {
+        var used = Array(repeating: false, count: ts.count)
+        var clusters = 0
+        for i in ts.indices where !used[i] {
+            clusters += 1
+            for j in (i + 1)..<ts.count where !used[j] {
+                let dx = ts[i].x - ts[j].x, dy = ts[i].y - ts[j].y
+                if (dx * dx + dy * dy).squareRoot() / 1000.0 < desplitMeters { used[j] = true }
+            }
+        }
+        return clusters
+    }
+
+    /// Persistence + hysteresis gate over the de-split count.
+    private func stabilizedCount(_ raw: Int) -> Int {
+        if raw <= lastStableCount {
+            lastStableCount = raw; countCandidate = raw; countStreak = 0
+        } else {
+            if raw == countCandidate { countStreak += 1 } else { countCandidate = raw; countStreak = 1 }
+            if countStreak >= countPersist { lastStableCount = raw }
+        }
+        return lastStableCount
+    }
+
     init() {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = 3
@@ -304,10 +339,12 @@ final class LD2450Client: ObservableObject {
 
         consecutiveFailures = 0
         isReachable = true
+        // De-split near-field body-splits, then require a raised count to persist.
+        let stableCount = stabilizedCount(desplitCount(targets))
         reading = LD2450Reading(
-            // Count from validated, in-range targets — NOT the raw target_count
-            // register, which still tallies out-of-range ghosts.
-            targetCount: targets.count,
+            // Count from validated, in-range, de-split + persisted targets — NOT
+            // the raw target_count register (out-of-range ghosts, near-field splits).
+            targetCount: stableCount,
             movingCount: movingR.map { Int($0) } ?? 0,
             targets: targets,
             personPresent: presentR ?? !targets.isEmpty,
