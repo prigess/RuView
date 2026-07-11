@@ -26,16 +26,44 @@ struct SkeletonView: View {
 
     private var statsBar: some View {
         HStack(spacing: 0) {
-            statItem(label: "Persons", value: "\(viewModel.snapshot?.persons?.count ?? 0)")
+            statItem(label: "Persons", value: "\(personsShown)")
             Divider().frame(height: 32)
-            statItem(label: "Source", value: viewModel.sourceLabel)
+            statItem(label: "Motion", value: radarOccupied ? (isMoving ? "Moving" : "Still") : "—")
             Divider().frame(height: 32)
-            statItem(label: "Tick", value: viewModel.formattedTick)
+            statItem(label: "Source", value: radarOccupied && serverPersons.isEmpty ? "LD2450" : viewModel.sourceLabel)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
         .background(Color.surface)
         .shadow(color: Color.steel.opacity(0.08), radius: 4, x: 0, y: 2)
+    }
+
+    // MARK: - Fused live state (radar-driven when the server pose feed is idle)
+
+    private var serverPersons: [Person] { viewModel.snapshot?.persons ?? [] }
+
+    /// Figures to draw from the LD2450. Falls back to a single centered figure
+    /// when the count is positive but coordinates momentarily read zero (which
+    /// happens at very close range) — so the skeleton never blinks out.
+    private var radarFigures: [LD2450Target] {
+        guard viewModel.ld2450Reachable else { return [] }
+        let targets = viewModel.ld2450Reading?.targets ?? []
+        if !targets.isEmpty { return targets }
+        if (viewModel.ld2450Reading?.targetCount ?? 0) > 0 {
+            return [LD2450Target(id: 1, x: 0, y: 1200)]
+        }
+        return []
+    }
+
+    private var radarOccupied: Bool { !radarFigures.isEmpty }
+
+    private var isMoving: Bool {
+        (viewModel.ld2450Reading?.movingCount ?? 0) > 0
+            || (viewModel.ld2410Reading?.movingPresent ?? false)
+    }
+
+    private var personsShown: Int {
+        serverPersons.isEmpty ? radarFigures.count : serverPersons.count
     }
 
     private func statItem(label: String, value: String) -> some View {
@@ -81,6 +109,12 @@ struct SkeletonView: View {
                         personLabel(person: person, index: index,
                                     scale: scale, offsetX: offsetX, offsetY: offsetY)
                     }
+                } else if radarOccupied {
+                    RadarSkeletonCanvas(
+                        figures: radarFigures,
+                        moving: isMoving,
+                        drawRect: CGRect(x: offsetX, y: offsetY, width: scaledW, height: scaledH)
+                    )
                 } else {
                     emptySkeletonPlaceholder
                 }
@@ -229,5 +263,103 @@ struct SkeletonView: View {
 
     private func personColor(index: Int) -> Color {
         personPalette[index % personPalette.count]
+    }
+}
+
+// MARK: - RadarSkeletonCanvas
+//
+// A live stick figure per LD2450 target, positioned by its (x, y): x maps
+// left↔right across the canvas, y maps near (bottom, larger) → far (top,
+// smaller). When the person is moving the limbs swing in a walk cycle; when
+// still the figure holds with a gentle idle sway. Driven by TimelineView's
+// animation clock so it updates every frame regardless of data cadence.
+
+private struct RadarSkeletonCanvas: View {
+    let figures: [LD2450Target]
+    let moving: Bool
+    let drawRect: CGRect
+
+    private let palette: [Color] = [.steel, .orange, Color.lungTeal]
+    private let maxX: Double = 2500   // mm mapped to each side
+    private let maxY: Double = 4000   // mm depth
+
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            let phase = timeline.date.timeIntervalSinceReferenceDate
+            Canvas { ctx, _ in
+                for (i, fig) in figures.enumerated() {
+                    drawFigure(&ctx, fig: fig, phase: phase,
+                               color: palette[i % palette.count],
+                               // stagger each figure's gait so two people
+                               // don't march in lockstep
+                               phaseOffset: Double(i) * 1.3)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func drawFigure(_ ctx: inout GraphicsContext, fig: LD2450Target,
+                            phase: Double, color: Color, phaseOffset: Double) {
+        let r = drawRect
+        let nx = max(-1.0, min(1.0, fig.x / maxX))
+        let ny = max(0.0, min(1.0, fig.y / maxY))               // 0 near, 1 far
+        let cx = r.midX + CGFloat(nx) * r.width * 0.38
+        let H = r.height * CGFloat(0.60 - 0.26 * ny)            // near taller
+        let feetY = r.maxY - r.height * 0.06 - CGFloat(ny) * r.height * 0.40
+
+        let freq = moving ? 5.5 : 1.4
+        let ph = (phase * freq) + phaseOffset
+        let s = CGFloat(sin(ph))
+
+        let legLen = H * 0.46
+        let torso  = H * 0.32
+        let headR  = H * 0.085
+        let armLen = torso * 0.95
+        let stepX  = moving ? H * 0.14 : H * 0.02
+        let bob    = moving ? abs(CGFloat(sin(ph))) * H * 0.02 : 0
+
+        let feet = feetY - bob
+        let hipY = feet - legLen
+        let neckY = hipY - torso
+        let headCY = neckY - headR * 1.35
+        let hip  = CGPoint(x: cx, y: hipY)
+        let neck = CGPoint(x: cx, y: neckY)
+
+        let lFoot = CGPoint(x: cx + s * stepX,
+                            y: feet - (moving ? max(0, s) * H * 0.05 : 0))
+        let rFoot = CGPoint(x: cx - s * stepX,
+                            y: feet - (moving ? max(0, -s) * H * 0.05 : 0))
+        let lKnee = CGPoint(x: (hip.x + lFoot.x) / 2 + H * 0.03, y: (hip.y + lFoot.y) / 2)
+        let rKnee = CGPoint(x: (hip.x + rFoot.x) / 2 + H * 0.03, y: (hip.y + rFoot.y) / 2)
+
+        let lHand = CGPoint(x: cx - s * stepX * 0.9, y: neckY + armLen)
+        let rHand = CGPoint(x: cx + s * stepX * 0.9, y: neckY + armLen)
+        let lElbow = CGPoint(x: (neck.x + lHand.x) / 2 - H * 0.02, y: neckY + armLen * 0.5)
+        let rElbow = CGPoint(x: (neck.x + rHand.x) / 2 + H * 0.02, y: neckY + armLen * 0.5)
+
+        func bone(_ a: CGPoint, _ b: CGPoint, _ w: CGFloat, _ c: Color) {
+            var p = Path(); p.move(to: a); p.addLine(to: b)
+            ctx.stroke(p, with: .color(c), style: StrokeStyle(lineWidth: w, lineCap: .round))
+        }
+
+        // Ground shadow.
+        let shadowW = H * 0.30
+        ctx.fill(
+            Path(ellipseIn: CGRect(x: cx - shadowW / 2, y: feetY + H * 0.01,
+                                   width: shadowW, height: H * 0.05)),
+            with: .color(.black.opacity(0.28))
+        )
+
+        bone(hip, neck, H * 0.055, color)                    // spine
+        bone(hip, lKnee, H * 0.045, color); bone(lKnee, lFoot, H * 0.04, color)
+        bone(hip, rKnee, H * 0.045, color); bone(rKnee, rFoot, H * 0.04, color)
+        bone(neck, lElbow, H * 0.04, color); bone(lElbow, lHand, H * 0.032, color)
+        bone(neck, rElbow, H * 0.04, color); bone(rElbow, rHand, H * 0.032, color)
+
+        // Head.
+        let headRect = CGRect(x: cx - headR, y: headCY - headR, width: headR * 2, height: headR * 2)
+        ctx.fill(Path(ellipseIn: headRect), with: .color(color))
+        ctx.stroke(Path(ellipseIn: headRect), with: .color(.white.opacity(0.9)), lineWidth: H * 0.012)
     }
 }

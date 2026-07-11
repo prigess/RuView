@@ -23,6 +23,26 @@ final class SensingViewModel: ObservableObject {
         UserDefaults.standard.string(forKey: "c6RadarHost") ?? "192.168.8.192"
     }
 
+    // MARK: - LD2450 24GHz tracking radar (direct ESPHome poller)
+    let ld2450Client: LD2450Client
+    @Published var ld2450Reading: LD2450Reading?
+    @Published var ld2450Reachable: Bool = false
+
+    /// IP of the LD2450 ESPHome node. Stored in UserDefaults ("ld2450Host")
+    /// so a settings screen can edit it without touching this class.
+    private var ld2450Host: String {
+        UserDefaults.standard.string(forKey: "ld2450Host") ?? "192.168.7.186"
+    }
+
+    // MARK: - LD2410C 24GHz presence radar (direct ESPHome poller)
+    let ld2410Client: LD2410Client
+    @Published var ld2410Reading: LD2410Reading?
+    @Published var ld2410Reachable: Bool = false
+
+    private var ld2410Host: String {
+        UserDefaults.standard.string(forKey: "ld2410Host") ?? "192.168.7.153"
+    }
+
     // MARK: - Published state mirrored from client
     @Published var snapshot: SensingSnapshot?
     @Published var isConnected: Bool = false
@@ -101,6 +121,22 @@ final class SensingViewModel: ObservableObject {
     private var lastEvidenceOfPresenceAt: Date?
     private let presenceStickyDuration: TimeInterval = 1.0
 
+    // MARK: - Presence timeline + time-in-state
+    //
+    // For the caregiver UX the question is never "is the radar working?"
+    // it's "is mom in the room *now* and how long has she been there/gone?"
+    // Track the moment displayPresence last flipped + keep a 24 h rolling
+    // log of (timestamp, present) for the timeline strip.
+    @Published var presenceChangedAt: Date = Date()
+    @Published var lastTimePresent: Date? = nil
+    struct PresenceSample: Identifiable {
+        let id = UUID()
+        let at: Date
+        let present: Bool
+    }
+    @Published var presenceHistory: [PresenceSample] = []
+    private let presenceHistoryRetention: TimeInterval = 24 * 3600
+
     // MARK: - Known-good value fallback
     //
     // When the live reading is unreliable (low confidence or out of physiologic
@@ -132,8 +168,31 @@ final class SensingViewModel: ObservableObject {
     init() {
         self.client = RuViewClient()
         self.radarClient = C6RadarClient()
+        self.ld2450Client = LD2450Client()
+        self.ld2410Client = LD2410Client()
         bindClientPublishers()
         bindRadarPublishers()
+        bindLD2450Publishers()
+        bindLD2410Publishers()
+    }
+
+    private func bindLD2410Publishers() {
+        ld2410Client.$reading
+            .receive(on: RunLoop.main)
+            .assign(to: &$ld2410Reading)
+        ld2410Client.$isReachable
+            .receive(on: RunLoop.main)
+            .assign(to: &$ld2410Reachable)
+    }
+
+    // Mirror the LD2450 client's published state onto this view model.
+    private func bindLD2450Publishers() {
+        ld2450Client.$reading
+            .receive(on: RunLoop.main)
+            .assign(to: &$ld2450Reading)
+        ld2450Client.$isReachable
+            .receive(on: RunLoop.main)
+            .assign(to: &$ld2450Reachable)
     }
 
     // Mirror the radar client's published state onto this view model so views
@@ -216,6 +275,8 @@ final class SensingViewModel: ObservableObject {
         client.connect(host: host)
         startPolling()
         radarClient.start(host: c6RadarHost)
+        ld2450Client.start(host: ld2450Host)
+        ld2410Client.start(host: ld2410Host)
     }
 
     func disconnect() {
@@ -223,6 +284,8 @@ final class SensingViewModel: ObservableObject {
         showDisconnectedBanner = false
         client.disconnect()
         radarClient.stop()
+        ld2450Client.stop()
+        ld2410Client.stop()
         stopPolling()
         nodes = []
         zones = []
@@ -319,6 +382,64 @@ final class SensingViewModel: ObservableObject {
 
     // MARK: - Derived computed properties
 
+    /// Authoritative occupant count for the Occupancy hero. The LD2450 radar
+    /// gives a true multi-target count, so prefer it when reachable; it reads
+    /// 0 whenever no one is in view (absent → 0 automatically). Falls back to
+    /// the server's hysteresis-stabilized count when the radar is offline.
+    var radarOccupantCount: Int { fusedOccupantCount }
+
+    /// True while a live occupant count is coming from any radar source.
+    var radarCountIsLive: Bool {
+        (ld2450Reachable && ld2450Reading != nil)
+            || (ld2410Reachable && ld2410Reading != nil)
+            || (radarReachable && radarReading != nil)
+    }
+
+    // MARK: - Sensor fusion
+    //
+    // Stitch the three independent radars into one coherent room picture:
+    //   • LD2450 gives the authoritative multi-target count + position.
+    //   • LD2410C + C6 are single-presence — they can't count, but they keep
+    //     the room "occupied" when the LD2450 momentarily drops a still person.
+    //   • Vitals come from the live C6 when reachable, else the server snapshot.
+
+    /// Any live sensor currently sees a person.
+    var anyPresenceEvidence: Bool {
+        if ld2450Reachable, (ld2450Reading?.targetCount ?? 0) > 0 { return true }
+        if ld2410Reachable, ld2410Reading?.personPresent == true { return true }
+        if radarReachable, radarReading?.personPresent == true { return true }
+        return false
+    }
+
+    /// Fused occupant count: the LD2450's true count, but never below 1 while
+    /// another sensor still reports presence. Falls back to the server count
+    /// when no radar is reachable.
+    var fusedOccupantCount: Int {
+        if ld2450Reachable, let r = ld2450Reading {
+            if r.targetCount > 0 { return r.targetCount }
+            return anyPresenceEvidence ? 1 : 0
+        }
+        if anyPresenceEvidence { return max(1, personCount) }
+        return personCount
+    }
+
+    /// Live heart rate — prefer the direct C6 radar over the (possibly stale)
+    /// server-derived value.
+    var fusedHeartRate: Int? {
+        if radarReachable, let hr = radarReading?.heartRateBpm, hr > 0 {
+            return Int(hr.rounded())
+        }
+        return displayHeartRate
+    }
+
+    /// Live breathing rate — C6-first, server fallback.
+    var fusedBreathingRate: Int? {
+        if radarReachable, let br = radarReading?.breathingRateBpm, br > 0 {
+            return Int(br.rounded())
+        }
+        return displayBreathingRate
+    }
+
     var personCount: Int {
         // Defensive consistency clamp: if classification.presence is explicitly
         // false, the count MUST be 0. Prevents the "1 Person detected" /
@@ -375,6 +496,50 @@ final class SensingViewModel: ObservableObject {
     var formattedTick: String {
         guard let tick = snapshot?.tick else { return "–" }
         return "#\(tick)"
+    }
+
+    // MARK: - Signal health (green / yellow / red stoplight)
+
+    /// A caregiver-friendly summary of the data feed's health. The "Last tick"
+    /// counter was a developer artefact; this is what a clinician/family
+    /// member actually needs: am I getting trustworthy live data right now?
+    enum SignalHealth {
+        case green       // fresh data flowing, recent unique tick, WS connected
+        case yellow      // connected but data slowing / verifying / demo
+        case red         // disconnected, signal lost, or stuck > staleThreshold
+
+        var label: String {
+            switch self {
+            case .green:  return "Live"
+            case .yellow: return "Verifying"
+            case .red:    return "Signal lost"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .green:  return "Real-time data flowing"
+            case .yellow: return "Data slowing — may be transitioning"
+            case .red:    return "No fresh data from the hub"
+            }
+        }
+
+        /// SF Symbols glyph paired with the colour.
+        var systemImage: String {
+            switch self {
+            case .green:  return "checkmark.circle.fill"
+            case .yellow: return "exclamationmark.triangle.fill"
+            case .red:    return "xmark.octagon.fill"
+            }
+        }
+    }
+
+    /// Derived from existing telemetry — no new wiring needed.
+    var signalHealth: SignalHealth {
+        if !isConnected || connectionError != nil { return .red }
+        if isSignalLost                            { return .red }
+        if isDemoMode || !isLiveDataFlowing        { return .yellow }
+        return .green
     }
 
     // MARK: - Vital signs display
@@ -583,20 +748,69 @@ final class SensingViewModel: ObservableObject {
         let pres = presence ?? false
         let motion = motionLevel ?? "absent"
         let hasEvidence = pres || motion != "absent"
+
+        // Record the transition + sample for the timeline strip.
+        let beforeDisplay = displayPresence
+
         if hasEvidence {
             lastEvidenceOfPresenceAt = Date()
+            lastTimePresent = Date()
             if !displayPresence { displayPresence = true }
-            return
+        } else if let last = lastEvidenceOfPresenceAt,
+                  Date().timeIntervalSince(last) >= presenceStickyDuration,
+                  displayPresence {
+            displayPresence = false
+        } else if lastEvidenceOfPresenceAt == nil, displayPresence {
+            displayPresence = false
         }
-        // No evidence this frame. Hold the previous state until the sticky
-        // window has elapsed since the last positive evidence.
-        guard let last = lastEvidenceOfPresenceAt else {
-            if displayPresence { displayPresence = false }
-            return
+
+        if displayPresence != beforeDisplay {
+            presenceChangedAt = Date()
         }
-        if Date().timeIntervalSince(last) >= presenceStickyDuration {
-            if displayPresence { displayPresence = false }
+        recordPresenceSample(present: displayPresence)
+    }
+
+    /// Append a presence sample. We sample on every state change AND at
+    /// most every 30 s when state is unchanged. Bounded to 24 h.
+    private var lastPresenceSampleAt: Date = .distantPast
+    private func recordPresenceSample(present: Bool) {
+        let now = Date()
+        let last = presenceHistory.last
+        let mustRecord = (last?.present != present)
+            || now.timeIntervalSince(lastPresenceSampleAt) >= 30
+        guard mustRecord else { return }
+        presenceHistory.append(PresenceSample(at: now, present: present))
+        lastPresenceSampleAt = now
+        // Trim older than 24 h.
+        let cutoff = now.addingTimeInterval(-presenceHistoryRetention)
+        if let firstKeepIndex = presenceHistory.firstIndex(where: { $0.at >= cutoff }),
+           firstKeepIndex > 0 {
+            presenceHistory.removeFirst(firstKeepIndex)
         }
+    }
+
+    // MARK: - Caregiver-facing labels (time-in-state + last seen)
+
+    /// Examples:  "Present for 12 min"  ·  "Empty for 47 min"  ·  "Just arrived"
+    var timeInStateLabel: String {
+        let elapsed = Date().timeIntervalSince(presenceChangedAt)
+        let stateWord = displayPresence ? "Present" : "Empty"
+        if elapsed < 60 { return "\(stateWord) · just now" }
+        let minutes = Int(elapsed / 60)
+        if minutes < 60 { return "\(stateWord) for \(minutes) min" }
+        let hours = minutes / 60
+        let remMin = minutes % 60
+        if remMin == 0 { return "\(stateWord) for \(hours) h" }
+        return "\(stateWord) for \(hours) h \(remMin) m"
+    }
+
+    /// Only meaningful when empty — what time the room last had someone.
+    /// Returns nil if we've never seen anyone (no history yet).
+    var lastSeenLabel: String? {
+        guard !displayPresence, let last = lastTimePresent else { return nil }
+        let fmt = DateFormatter()
+        fmt.dateFormat = "h:mm a"
+        return "Last seen \(fmt.string(from: last))"
     }
 
     private func updateVitalHistory(_ vitals: VitalSigns) {

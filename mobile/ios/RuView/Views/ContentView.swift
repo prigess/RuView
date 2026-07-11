@@ -6,7 +6,7 @@ struct ContentView: View {
     @ObservedObject var viewModel: SensingViewModel
     @AppStorage("deviceHost") private var deviceHost: String = "192.168.8.11"
     @AppStorage("appearanceMode") private var appearanceModeRaw: String = AppearanceMode.system.rawValue
-    @State private var selectedTab: Int = 0
+    @AppStorage("selectedTab") private var selectedTab: Int = 0
     @State private var showingTrainingWizard: Bool = false
     @State private var showingDeviceSetup: Bool = false
     @State private var showingAbout: Bool = false
@@ -56,7 +56,13 @@ struct ContentView: View {
             .toolbarBackground(Color.steelPale, for: .tabBar)
 
             VStack(spacing: 0) {
-                if viewModel.isSignalLost {
+                // The connection banners reflect the main sensing-server link.
+                // When the LD2450 radar is streaming directly we have live data
+                // regardless of that server, so suppress the banners — otherwise
+                // "Signal lost" is misleading while targets are tracking fine.
+                if viewModel.ld2450Reachable {
+                    EmptyView()
+                } else if viewModel.isSignalLost {
                     signalLostBanner
                         .transition(.move(edge: .top).combined(with: .opacity))
                 } else if viewModel.isDemoMode {

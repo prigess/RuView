@@ -18,12 +18,16 @@ private struct ExpectedNode: Identifiable {
     let chip: String             // "ESP32-S3" or "ESP32-C6"
 }
 
-// Current dome roster (2026-06-17): C6-only demo mode. The 3 ESP32-S3 CSI
-// nodes are powered off and removed from the expected roster — bring them
-// back when the CSI classifier's empty-room baseline is properly tuned.
+// Current dome roster (2026-06-19): 3 ESP32-S3 CSI nodes on Firefly +
+// 1 ESP32-C6 radar (currently off-network at the office).
+// Pi at 192.168.7.205 (with 192.168.7.212 as a persistent secondary IP
+// for legacy S3 target_ip compatibility).
+// 2026-06-26 — Norim office demo: only the ESP32-C6 + MR60BHA2 radar is
+// deployed here. S3 CSI nodes are not in the room; omit them from the
+// roster so the dashboard reads "1 / 1 online" rather than "1 / 4 online".
 private let expectedRoster: [ExpectedNode] = [
     ExpectedNode(id: 4, acceptedIds: [4], name: "Node 4", position: "South",
-                 mac: "58:e6:c5:19:a4:40", chip: "ESP32-C6"),
+                 mac: "58:e6:c5:13:5a:9c", chip: "ESP32-C6"),
 ]
 
 // MARK: - NodeHealthView
@@ -52,19 +56,31 @@ struct NodeHealthView: View {
         return viewModel.nodes.filter { !acceptedIds.contains($0.nodeId) }
     }
 
+    /// The LD2450 is a direct-poll node (not in the server's /api/v1/nodes),
+    /// so it's rostered here from the view model's live radar state.
+    private var ld2450Online: Bool { viewModel.ld2450Reachable }
+    private var ld2410Online: Bool { viewModel.ld2410Reachable }
+
+    /// Direct-poll radar nodes online (LD2450 + LD2410).
+    private var directOnline: Int { (ld2450Online ? 1 : 0) + (ld2410Online ? 1 : 0) }
+
+    /// Total expected positions = server-rostered dome nodes + the 2 direct
+    /// radar nodes (LD2450 tracking + LD2410C presence).
+    private var totalExpected: Int { expectedRoster.count + 2 }
+
     private var onlineCount: Int {
-        expectedRoster.filter { activeNode(for: $0) != nil }.count
+        expectedRoster.filter { activeNode(for: $0) != nil }.count + directOnline
     }
 
     private var offlineCount: Int {
-        expectedRoster.count - onlineCount
+        totalExpected - onlineCount
     }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
                 SectionHeader(title: "Dome Roster",
-                              trailing: "\(onlineCount) / \(expectedRoster.count) online")
+                              trailing: "\(onlineCount) / \(totalExpected) online")
                 summaryBar
                 SectionHeader(title: "Positions")
                 nodeGrid
@@ -98,7 +114,7 @@ struct NodeHealthView: View {
 
     private var summaryBar: some View {
         HStack(spacing: 0) {
-            summaryItem(label: "Expected", value: "\(expectedRoster.count)",
+            summaryItem(label: "Expected", value: "\(totalExpected)",
                         icon: "antenna.radiowaves.left.and.right", color: .steel)
             Divider().frame(height: 44)
             summaryItem(label: "Online", value: "\(onlineCount)",
@@ -134,6 +150,13 @@ struct NodeHealthView: View {
             loadingGrid
         } else {
             LazyVGrid(columns: columns, spacing: 12) {
+                // LD2450 tracking radar — rostered from the direct poll.
+                LD2450NodeCard(reachable: viewModel.ld2450Reachable,
+                               reading: viewModel.ld2450Reading,
+                               mac: "DE:6C:1C:CD:67:B0")
+                LD2410NodeCard(reachable: viewModel.ld2410Reachable,
+                               reading: viewModel.ld2410Reading,
+                               mac: "E0:72:A1:D6:03:DC")
                 ForEach(expectedRoster) { expected in
                     if let active = activeNode(for: expected) {
                         NodeCard(
@@ -266,23 +289,24 @@ private struct NodeCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        nodeIdBadge
-                        if let pos = positionLabel {
-                            Text(pos.uppercased())
-                                .font(.system(size: 9, weight: .semibold))
-                                .tracking(1.0)
-                                .foregroundColor(.steel)
-                                .padding(.horizontal, 5).padding(.vertical, 2)
-                                .background(Color.steel.opacity(0.12))
-                                .cornerRadius(4)
-                        }
+                VStack(alignment: .leading, spacing: 4) {
+                    nodeIdBadge
+                        .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                    if let pos = positionLabel {
+                        Text(pos.uppercased())
+                            .font(.system(size: 9, weight: .semibold))
+                            .tracking(1.0)
+                            .foregroundColor(.steel)
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(Color.steel.opacity(0.12))
+                            .cornerRadius(4)
+                            .lineLimit(1)
                     }
                     Text(syntheticMac)
                         .font(.system(size: 9, weight: .medium, design: .monospaced))
                         .foregroundColor(.healthSub)
                         .tracking(0.3)
+                        .lineLimit(1).minimumScaleFactor(0.7)
                 }
                 Spacer()
                 if isStale { staleBadge } else { activeDot }
@@ -451,23 +475,24 @@ private struct OfflineNodeCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(expected.name)
-                            .font(.callout).fontWeight(.semibold)
-                            .foregroundColor(.healthSub)
-                        Text(expected.position.uppercased())
-                            .font(.system(size: 9, weight: .semibold))
-                            .tracking(1.0)
-                            .foregroundColor(.healthSub)
-                            .padding(.horizontal, 5).padding(.vertical, 2)
-                            .background(Color.healthSub.opacity(0.12))
-                            .cornerRadius(4)
-                    }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(expected.name)
+                        .font(.callout).fontWeight(.semibold)
+                        .foregroundColor(.healthSub)
+                        .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                    Text(expected.position.uppercased())
+                        .font(.system(size: 9, weight: .semibold))
+                        .tracking(1.0)
+                        .foregroundColor(.healthSub)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(Color.healthSub.opacity(0.12))
+                        .cornerRadius(4)
+                        .lineLimit(1)
                     Text(expected.mac)
                         .font(.system(size: 9, weight: .medium, design: .monospaced))
                         .foregroundColor(.healthSub.opacity(0.6))
                         .tracking(0.3)
+                        .lineLimit(1).minimumScaleFactor(0.7)
                 }
                 Spacer()
                 offlineBadge
@@ -511,5 +536,232 @@ private struct OfflineNodeCard: View {
         .padding(.horizontal, 6).padding(.vertical, 3)
         .background(Color.healthSub.opacity(0.10))
         .cornerRadius(6)
+    }
+}
+
+// MARK: - LD2450NodeCard
+//
+// The LD2450 tracking radar is polled directly (not via the server's
+// /api/v1/nodes), so it's rendered from the view model's live radar state
+// rather than a NodeStatus. Live when reachable, muted placeholder otherwise.
+
+private struct LD2450NodeCard: View {
+    let reachable: Bool
+    let reading: LD2450Reading?
+    let mac: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("LD2450")
+                        .font(.callout).fontWeight(.semibold)
+                        .foregroundColor(reachable ? .healthText : .healthSub)
+                        .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                    Text("TRACKING")
+                        .font(.system(size: 9, weight: .semibold)).tracking(1.0)
+                        .foregroundColor(.lungTeal)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(Color.lungTeal.opacity(0.12)).cornerRadius(4)
+                        .lineLimit(1)
+                    Text(mac)
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(.healthSub).tracking(0.3)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                }
+                Spacer()
+                if reachable { activeDot } else { offlineBadge }
+            }
+
+            HStack(spacing: 4) {
+                Image(systemName: "dot.radiowaves.up.forward").font(.system(size: 9, weight: .semibold))
+                Text("24 GHz Tracking").font(.system(size: 10, weight: .medium))
+            }
+            .foregroundColor(.lungTeal)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Color.lungTeal.opacity(0.12)).cornerRadius(4)
+
+            if reachable, let r = reading {
+                HStack(alignment: .bottom, spacing: 8) {
+                    Text("\(r.targetCount)")
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .foregroundColor(.healthText).monospacedDigit()
+                        .contentTransition(.numericText())
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(r.targetCount == 1 ? "target" : "targets")
+                            .font(.caption).foregroundColor(.healthSub)
+                        Text("\(r.movingCount) moving")
+                            .font(.caption2).foregroundColor(.healthSub)
+                    }
+                }
+                Divider()
+                HStack(spacing: 6) {
+                    Circle().fill(r.personPresent ? Color.lungTeal : Color.healthSub)
+                        .frame(width: 8, height: 8)
+                    Text(r.personPresent ? "Presence detected" : "Clear")
+                        .font(.caption).foregroundColor(.healthSub)
+                }
+                if let nearest = r.targets.map({ $0.distanceMeters }).min() {
+                    HStack(spacing: 4) {
+                        Image(systemName: "ruler").font(.caption2).foregroundColor(.healthSub)
+                        Text(String(format: "nearest %.1f m", nearest))
+                            .font(.caption2).foregroundColor(.healthSub).monospacedDigit()
+                    }
+                }
+            } else {
+                Spacer(minLength: 0)
+                VStack(spacing: 6) {
+                    Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                        .font(.system(size: 28)).foregroundColor(.steelLight)
+                    Text("Awaiting connection")
+                        .font(.caption2).foregroundColor(.healthSub)
+                }
+                .frame(maxWidth: .infinity)
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(14)
+        .frame(minHeight: 200, alignment: .top)
+        .background(Color.surface)
+        .cornerRadius(14)
+        .shadow(color: Color.steel.opacity(reachable ? 0.10 : 0.05), radius: 6, x: 0, y: 2)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(reachable ? Color.lungTeal.opacity(0.30) : Color.healthSub.opacity(0.25),
+                        lineWidth: 1.5)
+        )
+    }
+
+    private var activeDot: some View {
+        HStack(spacing: 5) {
+            LivePulseDot(color: .lungTeal, size: 6, active: true)
+            Text("Live").font(.caption2).foregroundColor(.lungTeal)
+        }
+    }
+
+    private var offlineBadge: some View {
+        HStack(spacing: 3) {
+            Circle().fill(Color.healthSub).frame(width: 7, height: 7)
+            Text("Offline").font(.caption2).fontWeight(.medium)
+        }
+        .foregroundColor(.healthSub)
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(Color.healthSub.opacity(0.10)).cornerRadius(6)
+    }
+}
+
+// MARK: - LD2410NodeCard
+//
+// LD2410C presence radar (presence + moving/still distance + energy — one
+// aggregate target, no X/Y). Direct-poll sourced, like the LD2450 card.
+
+private struct LD2410NodeCard: View {
+    let reachable: Bool
+    let reading: LD2410Reading?
+    let mac: String
+
+    private var motionColor: Color {
+        guard let r = reading else { return .healthSub }
+        if r.movingPresent { return .orange }
+        if r.stillPresent  { return .steel }
+        return .healthSub
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("LD2410C")
+                        .font(.callout).fontWeight(.semibold)
+                        .foregroundColor(reachable ? .healthText : .healthSub)
+                        .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                    Text("PRESENCE")
+                        .font(.system(size: 9, weight: .semibold)).tracking(1.0)
+                        .foregroundColor(.lungTeal)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(Color.lungTeal.opacity(0.12)).cornerRadius(4)
+                        .lineLimit(1)
+                    Text(mac)
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(.healthSub).tracking(0.3)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                }
+                Spacer()
+                if reachable { activeDot } else { offlineBadge }
+            }
+
+            HStack(spacing: 4) {
+                Image(systemName: "dot.radiowaves.forward").font(.system(size: 9, weight: .semibold))
+                Text("24 GHz Radar").font(.system(size: 10, weight: .medium))
+            }
+            .foregroundColor(.lungTeal)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Color.lungTeal.opacity(0.12)).cornerRadius(4)
+
+            if reachable, let r = reading {
+                if let meters = r.distanceMeters {
+                    HStack(alignment: .bottom, spacing: 8) {
+                        Text(String(format: "%.1f", meters))
+                            .font(.system(size: 34, weight: .bold, design: .rounded))
+                            .foregroundColor(.healthText).monospacedDigit()
+                            .contentTransition(.numericText())
+                        Text("m away").font(.caption).foregroundColor(.healthSub)
+                    }
+                } else {
+                    Text("—")
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .foregroundColor(.healthSub)
+                }
+                Divider()
+                HStack(spacing: 6) {
+                    Circle().fill(motionColor).frame(width: 8, height: 8)
+                    Text(r.personPresent ? r.motionLabel : "Clear")
+                        .font(.caption).foregroundColor(.healthSub)
+                }
+                if let e = (r.movingPresent ? r.movingEnergy : r.stillEnergy) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "bolt.fill").font(.caption2).foregroundColor(.healthSub)
+                        Text("\(Int(e))% energy").font(.caption2).foregroundColor(.healthSub).monospacedDigit()
+                    }
+                }
+            } else {
+                Spacer(minLength: 0)
+                VStack(spacing: 6) {
+                    Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                        .font(.system(size: 28)).foregroundColor(.steelLight)
+                    Text("Awaiting connection")
+                        .font(.caption2).foregroundColor(.healthSub)
+                }
+                .frame(maxWidth: .infinity)
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(14)
+        .frame(minHeight: 200, alignment: .top)
+        .background(Color.surface)
+        .cornerRadius(14)
+        .shadow(color: Color.steel.opacity(reachable ? 0.10 : 0.05), radius: 6, x: 0, y: 2)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(reachable ? Color.lungTeal.opacity(0.30) : Color.healthSub.opacity(0.25),
+                        lineWidth: 1.5)
+        )
+    }
+
+    private var activeDot: some View {
+        HStack(spacing: 5) {
+            LivePulseDot(color: .lungTeal, size: 6, active: true)
+            Text("Live").font(.caption2).foregroundColor(.lungTeal)
+        }
+    }
+
+    private var offlineBadge: some View {
+        HStack(spacing: 3) {
+            Circle().fill(Color.healthSub).frame(width: 7, height: 7)
+            Text("Offline").font(.caption2).fontWeight(.medium)
+        }
+        .foregroundColor(.healthSub)
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(Color.healthSub.opacity(0.10)).cornerRadius(6)
     }
 }

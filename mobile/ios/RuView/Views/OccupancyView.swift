@@ -9,9 +9,11 @@ struct OccupancyView: View {
         ScrollView {
             VStack(spacing: 16) {
                 SectionHeader(title: "Current Status",
-                              trailing: viewModel.isLiveDataFlowing ? "Live · Updated just now" : "Waiting for data")
+                              trailing: (viewModel.isLiveDataFlowing || viewModel.radarCountIsLive) ? "Live · Updated just now" : "Waiting for data")
                 personCountCard
-                motionBadgeCard
+                ld2450TrackingSection
+                stateSummaryCard
+                presenceTimelineStrip
                 SectionHeader(title: "Details")
                 classificationDetails
                 SectionHeader(title: "Source")
@@ -41,39 +43,230 @@ struct OccupancyView: View {
 
             VStack(spacing: 10) {
                 HStack(spacing: 8) {
-                    LivePulseDot(color: .white, size: 7, active: viewModel.isLiveDataFlowing)
-                    Text(viewModel.isLiveDataFlowing ? "LIVE" : "WAITING")
+                    let live = viewModel.isLiveDataFlowing || viewModel.radarCountIsLive
+                    LivePulseDot(color: .white, size: 7, active: live)
+                    Text(live ? "LIVE" : "WAITING")
                         .font(.caption2).fontWeight(.bold)
                         .foregroundColor(.white.opacity(0.85))
                         .tracking(1.5)
                 }
 
-                // Binary Present/Empty for the demo — CSI count is noisy
-                // when no radar truth is available, so we hide it and rely
-                // on the more reliable classification.presence signal.
-                Text(viewModel.displayPresence ? "Present" : "Empty")
+                // Live occupant count from the LD2450 radar (true multi-target
+                // count; 0 whenever the room is empty). Falls back to the
+                // server count when the radar is offline.
+                Text("\(occupantCount)")
                     .font(.system(size: 72, weight: .bold, design: .rounded))
                     .foregroundColor(.white)
-                    .contentTransition(.opacity)
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
                     .frame(minWidth: 220)
 
-                Text("Room status")
+                Text(occupancySubtitle)
                     .font(.title3)
                     .foregroundColor(.white.opacity(0.85))
 
-                // Sparkline removed — it rendered the raw 0↔1 personCount
-                // history, which visually contradicted the sticky "Present"
-                // hero. Bring back a smoothed presence-over-time chart later
-                // once the CSI tracker's hysteresis is tuned.
+                // Inline vitals only when someone is here — tells the full
+                // story without the caregiver hopping to the Vitals tab.
+                if occupantCount > 0 {
+                    HStack(spacing: 22) {
+                        vitalChip(icon: "heart.fill",
+                                  value: viewModel.fusedHeartRate.map { "\($0)" } ?? "—",
+                                  unit: "bpm")
+                        Rectangle().fill(Color.white.opacity(0.25))
+                            .frame(width: 1, height: 22)
+                        vitalChip(icon: "lungs.fill",
+                                  value: viewModel.fusedBreathingRate.map { "\($0)" } ?? "—",
+                                  unit: "bpm")
+                    }
+                    .padding(.top, 6)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                }
             }
             .padding(.vertical, 28)
             .padding(.horizontal, 8)
+            .animation(.easeOut(duration: 0.18), value: occupantCount)
         }
         .shadow(color: Color.steel.opacity(0.40), radius: 14, x: 0, y: 7)
     }
 
-    // MARK: - Motion badge
+    /// Live occupant count for the hero (radar-first, 0 when empty).
+    private var occupantCount: Int { viewModel.radarOccupantCount }
 
+    private var occupancySubtitle: String {
+        switch occupantCount {
+        case 0:  return "Room is empty"
+        case 1:  return "1 person in the room"
+        default: return "\(occupantCount) people in the room"
+        }
+    }
+
+    private func vitalChip(icon: String, value: String, unit: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon).foregroundColor(.white.opacity(0.85))
+            Text(value).font(.title3).fontWeight(.semibold).foregroundColor(.white)
+                .monospacedDigit()
+            Text(unit).font(.caption).foregroundColor(.white.opacity(0.7))
+        }
+    }
+
+    // MARK: - LD2450 live tracking (direct radar poll)
+    //
+    // Only rendered when the LD2450 node is reachable. Shows a live person
+    // count and a top-down plot of each tracked target's (x, y) position —
+    // the multi-target capability the CSI/C6 nodes can't give us.
+    @ViewBuilder
+    private var ld2450TrackingSection: some View {
+        if viewModel.ld2450Reachable, let reading = viewModel.ld2450Reading {
+            SectionHeader(title: "Live Tracking", trailing: "LD2450 radar")
+            VStack(spacing: 16) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text("\(reading.targetCount)")
+                        .font(.system(size: 46, weight: .bold, design: .rounded))
+                        .foregroundColor(.healthText)
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(reading.targetCount == 1 ? "person tracked" : "people tracked")
+                            .font(.callout).foregroundColor(.healthSub)
+                        Text("\(reading.movingCount) moving")
+                            .font(.caption).foregroundColor(.healthSub.opacity(0.7))
+                    }
+                    Spacer()
+                    HStack(spacing: 6) {
+                        LivePulseDot(color: .steel, size: 7, active: true)
+                        Text("LIVE").font(.caption2).fontWeight(.bold)
+                            .foregroundColor(.steel).tracking(1.5)
+                    }
+                }
+                LD2450RadarPlot(targets: reading.targets)
+                    .frame(height: 230)
+                if reading.targets.isEmpty {
+                    Text("No targets in view")
+                        .font(.caption).foregroundColor(.healthSub.opacity(0.7))
+                }
+            }
+            .ruCard()
+            .animation(.easeOut(duration: 0.25), value: reading.targetCount)
+        }
+    }
+
+    // MARK: - State summary (replaces the old "Confidence %" card)
+
+    /// Time-in-state + last-seen + motion description. Replaces the old
+    /// "Confidence 85%" pill which didn't answer the caregiver's actual
+    /// question. Layout: motion chip on top, then big time-in-state,
+    /// then last-seen if applicable.
+    private var stateSummaryCard: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(viewModel.motionColor.opacity(0.15))
+                        .frame(width: 38, height: 38)
+                    Circle()
+                        .fill(viewModel.motionColor)
+                        .frame(width: 14, height: 14)
+                }
+                Text(viewModel.displayPresence
+                     ? viewModel.stickyMotionLevelDisplay
+                     : "Quiet")
+                    .font(.title2).fontWeight(.semibold)
+                    .foregroundColor(.healthText)
+            }
+
+            Text(viewModel.timeInStateLabel)
+                .font(.callout)
+                .foregroundColor(.healthSub)
+                .monospacedDigit()
+
+            if let lastSeen = viewModel.lastSeenLabel {
+                Text(lastSeen)
+                    .font(.caption)
+                    .foregroundColor(.healthSub.opacity(0.7))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .ruCard()
+    }
+
+    // MARK: - 24h presence timeline strip
+    //
+    // Horizontal band: shaded blocks when the room was Present, blank when
+    // Empty. Pure read-at-a-glance — answers "what's the pattern today?"
+    private var presenceTimelineStrip: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Last 24 h")
+                    .font(.caption).fontWeight(.semibold)
+                    .foregroundColor(.healthSub)
+                Spacer()
+                Text(presenceTimeRangeLabel())
+                    .font(.caption2).foregroundColor(.healthSub.opacity(0.7))
+                    .monospacedDigit()
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    // Track
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.steel.opacity(0.10))
+
+                    // Presence bands
+                    ForEach(timelineBands(width: geo.size.width), id: \.id) { band in
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.steel)
+                            .frame(width: max(2, band.width), height: 16)
+                            .offset(x: band.x, y: 0)
+                    }
+
+                    // "now" marker (right edge)
+                    Rectangle()
+                        .fill(Color.healthText.opacity(0.6))
+                        .frame(width: 2, height: 22)
+                        .offset(x: geo.size.width - 1, y: -3)
+                }
+            }
+            .frame(height: 22)
+            HStack {
+                Text("24 h ago").font(.caption2).foregroundColor(.healthSub.opacity(0.7))
+                Spacer()
+                Text("now").font(.caption2).foregroundColor(.healthSub.opacity(0.7))
+            }
+        }
+        .padding(14)
+        .ruCard()
+    }
+
+    /// Returns positioned bands (x, width) representing past Present spans.
+    private struct Band: Identifiable { let id = UUID(); let x: CGFloat; let width: CGFloat }
+    private func timelineBands(width: CGFloat) -> [Band] {
+        let now = Date()
+        let windowSec: TimeInterval = 24 * 3600
+        let start = now.addingTimeInterval(-windowSec)
+        // Pair samples into spans (s_at → next.at), keeping spans where present == true.
+        var spans: [(Date, Date)] = []
+        let samples = viewModel.presenceHistory.filter { $0.at >= start }
+        if samples.isEmpty { return [] }
+        for i in 0..<samples.count {
+            let s = samples[i]
+            guard s.present else { continue }
+            let endAt: Date = (i + 1 < samples.count) ? samples[i + 1].at : now
+            spans.append((max(s.at, start), endAt))
+        }
+        return spans.map { (s, e) in
+            let xFrac = CGFloat(s.timeIntervalSince(start) / windowSec)
+            let wFrac = CGFloat(e.timeIntervalSince(s) / windowSec)
+            return Band(x: xFrac * width, width: max(2, wFrac * width))
+        }
+    }
+
+    private func presenceTimeRangeLabel() -> String {
+        let now = Date()
+        let start = now.addingTimeInterval(-24 * 3600)
+        let f = DateFormatter(); f.dateFormat = "h a"
+        return "\(f.string(from: start))  →  \(f.string(from: now))"
+    }
+
+    // MARK: - Motion badge (deprecated — kept for back-compat, no longer rendered)
     private var motionBadgeCard: some View {
         VStack(spacing: 14) {
             HStack(spacing: 14) {
@@ -117,7 +310,7 @@ struct OccupancyView: View {
                       value: viewModel.stickyMotionLevelDisplay,
                       icon: "waveform")
             Divider().padding(.leading, 52)
-            detailRow(label: "Last tick", value: viewModel.formattedTick, icon: "clock")
+            signalHealthRow(health: viewModel.signalHealth)
             Divider().padding(.leading, 52)
             detailRow(label: "Active nodes",
                       value: "\(viewModel.snapshot?.nodeFeatures?.count ?? 0)",
@@ -138,6 +331,51 @@ struct OccupancyView: View {
             Text(label).foregroundColor(.healthSub)
             Spacer()
             Text(value).fontWeight(.medium).foregroundColor(.healthText)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 13)
+    }
+
+    /// Stoplight (green / yellow / red) version of the old "Last tick" row.
+    /// Replaces a developer-facing counter with a caregiver-readable status
+    /// pill so the user instantly knows whether to trust what they see.
+    private func signalHealthRow(health: SensingViewModel.SignalHealth) -> some View {
+        let tint: Color = {
+            switch health {
+            case .green:  return Color(red: 0.16, green: 0.65, blue: 0.42) // healthcare green
+            case .yellow: return Color(red: 0.96, green: 0.64, blue: 0.38) // soft amber
+            case .red:    return Color(red: 0.90, green: 0.44, blue: 0.32) // muted coral
+            }
+        }()
+
+        return HStack(spacing: 12) {
+            // Solid coloured dot — universal traffic-light cue
+            Circle()
+                .fill(tint)
+                .frame(width: 14, height: 14)
+                .overlay(
+                    Circle().stroke(tint.opacity(0.35), lineWidth: 4)
+                        .scaleEffect(1.6)
+                        .opacity(health == .green ? 0.6 : 0)   // gentle pulse only on green
+                )
+                .frame(width: 28, height: 28)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Data status").foregroundColor(.healthSub).font(.subheadline)
+                Text(health.subtitle).font(.caption).foregroundColor(.healthSub.opacity(0.7))
+            }
+            Spacer()
+
+            // Status pill on the right
+            HStack(spacing: 6) {
+                Image(systemName: health.systemImage)
+                Text(health.label)
+                    .fontWeight(.semibold)
+            }
+            .font(.caption)
+            .foregroundColor(tint)
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(tint.opacity(0.15))
+            .cornerRadius(999)
         }
         .padding(.horizontal, 16).padding(.vertical, 13)
     }
@@ -179,5 +417,77 @@ struct OccupancyView: View {
             }
         }
         .frame(height: 8)
+    }
+}
+
+// MARK: - LD2450 top-down radar plot
+
+/// Bird's-eye view of the LD2450's field: the sensor sits at bottom-center
+/// looking "up" the view. X maps left↔right, Y maps near↔far. Each active
+/// target is a labelled dot with its straight-line distance.
+private struct LD2450RadarPlot: View {
+    let targets: [LD2450Target]
+
+    private let maxX: Double = 2500   // mm shown to each side
+    private let maxY: Double = 4000   // mm of depth shown
+    private let topPad: CGFloat = 16
+    private let bottomPad: CGFloat = 40   // reserve room for the sensor marker
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            ZStack {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.steel.opacity(0.06))
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color.steel.opacity(0.15), lineWidth: 1)
+
+                // Depth gridlines (~every 1.25 m).
+                ForEach(1..<4) { i in
+                    let yy = h * CGFloat(i) / 4.0
+                    Path { p in
+                        p.move(to: CGPoint(x: 0, y: yy))
+                        p.addLine(to: CGPoint(x: w, y: yy))
+                    }
+                    .stroke(Color.steel.opacity(0.10), lineWidth: 1)
+                }
+                // Center boresight line.
+                Path { p in
+                    p.move(to: CGPoint(x: w / 2, y: 0))
+                    p.addLine(to: CGPoint(x: w / 2, y: h))
+                }
+                .stroke(Color.steel.opacity(0.18), style: StrokeStyle(lineWidth: 1, dash: [4, 5]))
+
+                // Sensor marker at bottom-center.
+                VStack(spacing: 2) {
+                    Image(systemName: "dot.radiowaves.up.forward")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.steel)
+                    Text("radar").font(.system(size: 8)).foregroundColor(.healthSub.opacity(0.7))
+                }
+                .position(x: w / 2, y: h - 12)
+
+                // Active targets.
+                ForEach(targets) { t in
+                    let cx = min(max(t.x, -maxX), maxX)
+                    let cy = min(max(t.y, 0), maxY)
+                    let px = w / 2 + CGFloat(cx / maxX) * (w / 2 - 22)
+                    // Near targets sit just above the sensor marker (not jammed
+                    // at the very bottom); far targets rise toward the top.
+                    let py = (h - bottomPad) - CGFloat(cy / maxY) * (h - bottomPad - topPad)
+                    ZStack {
+                        Circle().fill(Color.steel.opacity(0.20)).frame(width: 38, height: 38)
+                        Circle().fill(Color.steel).frame(width: 20, height: 20)
+                        Text("\(t.id)").font(.caption2).fontWeight(.bold).foregroundColor(.white)
+                    }
+                    .position(x: px, y: py)
+                    Text(String(format: "%.1f m", t.distanceMeters))
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.healthSub)
+                        .position(x: px, y: py - 24)
+                }
+            }
+        }
     }
 }

@@ -1,0 +1,236 @@
+# ESPHome configuration for the RuView LD2450 tracking node.
+#
+# Hardware:  Espressif ESP32-S3 (8 MB DevKitC) + Hi-Link LD2450 24 GHz radar.
+# Role:      Multi-target tracking — X/Y position, speed, and distance for up
+#            to THREE simultaneous targets, plus a live target_count.
+#
+# Why the LD2450 (vs the LD2410 on the other nodes):
+#   - The LD2410 only reports one aggregate presence + a single distance. The
+#     LD2450 tracks up to 3 people as distinct (x, y) coordinates, so it gives
+#     us an actual PERSON COUNT — the #1 RuView roadmap priority (accurate
+#     count). It's the natural sensor for "how many people are in the room."
+#   - ESPHome ships a mature `ld2450` component (positions, counts, presence).
+#   - Same MQTT integration pattern as the C6/MR60BHA2 and the LD2410 nodes,
+#     consumed by the Pi's radar bridge.
+#
+# Wiring (LD2450 → VCC-GND Studio YD-ESP32-S3 clone). VERIFIED WORKING config:
+#   VCC   → 5Vin     (NOT 3.3V; LD2450 needs 5V. On the YD clone the 5V pin is
+#                     DEAD until the front-side IN-OUT solder jumper is bridged.)
+#   GND   → GND
+#   TX    → GPIO12   (S3 RX  ← LD2450 TX)
+#   RX    → GPIO11   (S3 TX  → LD2450 RX)
+#   GPIO11/12 sit next to the 5Vin/GND corner. NOTE: that header slot is often
+#   mis-counted as "pin 17/18" by physical position — it is GPIO11/GPIO12.
+#   Go by the SILKSCREEN GPIO number, not the pin count.
+#
+# LD2450 UART factory default is 256000 8N1 (same as LD2410C).
+#
+# First-flash command (USB, the S3 is NOT yet running ESPHome):
+#   cd firmware/esphome
+#   esphome run ruview-s3-ld2450.yaml --device /dev/cu.wchusbserialXXXX
+
+substitutions:
+  device_name: ruview-s3-ld2450
+  device_friendly: "RuView LD2450 (Tracking)"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${device_friendly}
+  on_boot:
+    priority: 600
+    then:
+      - logger.log: "RuView LD2450 tracking node booted"
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+    version: recommended
+  flash_size: 8MB
+
+# ── WiFi (portable: phone hotspot primary, home WiFi fallback) ─────────────
+# Matches the C6/LD2410 portable WiFi strategy: the device joins whichever
+# known SSID is broadcasting, so it works at home AND at the workplace with
+# no re-flash.
+wifi:
+  power_save_mode: NONE
+  fast_connect: false
+  reboot_timeout: 0s
+  networks:
+    - ssid: !secret wifi_ssid_hotspot
+      password: !secret wifi_password_hotspot
+      priority: 10
+    - ssid: !secret wifi_ssid_home
+      password: !secret wifi_password_home
+      priority: 5
+
+# ── Native API (for ESPHome's `logs` and OTA tooling) ──────────────────────
+api:
+  encryption:
+    key: !secret api_encryption_key
+  reboot_timeout: 0s
+
+# ── OTA — once flashed via USB once, future updates go over WiFi ───────────
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+# ── MQTT — same broker and topic_prefix pattern as the other radar nodes ───
+mqtt:
+  broker: !secret mqtt_broker_host
+  port: 1883
+  topic_prefix: ruview-s3-ld2450
+  discovery: false
+
+# ── Web UI for direct inspection (curl http://<ip>/sensor/...) ─────────────
+web_server:
+  port: 80
+  version: 3
+  include_internal: false
+
+logger:
+  level: INFO
+  baud_rate: 115200   # LD2450 is on UART1 (GPIO17/18), so UART0 is free for USB serial logs
+
+# ── UART to LD2450 (GPIO17/18, 256000 8N1) ─────────────────────────────────
+# Same physical wiring convention as the LD2410 nodes: ESP32 transmits FROM
+# tx_pin → LD2450 RX, receives ON rx_pin ← LD2450 TX.
+uart:
+  id: ld2450_uart
+  tx_pin: GPIO11    # ESP TX → LD2450 Rx  (pin sits next to 5Vin/GND corner)
+  rx_pin: GPIO12    # ESP RX ← LD2450 Tx  (pin sits next to 5Vin/GND corner)
+  baud_rate: 256000
+  parity: NONE
+  stop_bits: 1
+
+# ── LD2450 component ───────────────────────────────────────────────────────
+ld2450:
+  id: ld2450_radar
+  uart_id: ld2450_uart
+
+# ── Numbers / switches / selects exposed by the LD2450 component ───────────
+number:
+  - platform: ld2450
+    presence_timeout:
+      name: "Presence Timeout"
+
+switch:
+  - platform: ld2450
+    bluetooth:
+      name: "Bluetooth"
+    multi_target:
+      name: "Multi Target Tracking"
+
+select:
+  - platform: ld2450
+    baud_rate:
+      name: "Baud Rate"
+
+button:
+  - platform: ld2450
+    factory_reset:
+      name: "Factory Reset LD2450"
+    restart:
+      name: "Restart LD2450"
+  - platform: restart
+    name: "Restart"
+
+# ── Sensors ─────────────────────────────────────────────────────────────────
+sensor:
+  - platform: ld2450
+    target_count:
+      name: "Target Count"          # ← the person count (0–3)
+      id: target_count
+    still_target_count:
+      name: "Still Target Count"
+    moving_target_count:
+      name: "Moving Target Count"
+    target_1:
+      x:
+        name: "Target 1 X"
+      y:
+        name: "Target 1 Y"
+      speed:
+        name: "Target 1 Speed"
+      angle:
+        name: "Target 1 Angle"
+      distance:
+        name: "Target 1 Distance"
+      resolution:
+        name: "Target 1 Resolution"
+    target_2:
+      x:
+        name: "Target 2 X"
+      y:
+        name: "Target 2 Y"
+      speed:
+        name: "Target 2 Speed"
+      angle:
+        name: "Target 2 Angle"
+      distance:
+        name: "Target 2 Distance"
+      resolution:
+        name: "Target 2 Resolution"
+    target_3:
+      x:
+        name: "Target 3 X"
+      y:
+        name: "Target 3 Y"
+      speed:
+        name: "Target 3 Speed"
+      angle:
+        name: "Target 3 Angle"
+      distance:
+        name: "Target 3 Distance"
+      resolution:
+        name: "Target 3 Resolution"
+
+  - platform: wifi_signal
+    name: "WiFi RSSI"
+    id: wifi_rssi
+    update_interval: 10s
+
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+
+# ── Binary sensors ──────────────────────────────────────────────────────────
+binary_sensor:
+  - platform: ld2450
+    has_target:
+      name: "Person Present"
+      id: person_present
+    has_moving_target:
+      name: "Moving Target Present"
+    has_still_target:
+      name: "Still Target Present"
+
+  - platform: status
+    name: "Status"
+
+# ── Text sensors (network diagnostics + per-target direction) ────────────────
+text_sensor:
+  - platform: ld2450
+    version:
+      name: "LD2450 Firmware"
+    mac_address:
+      name: "LD2450 MAC"
+    target_1:
+      direction:
+        name: "Target 1 Direction"
+    target_2:
+      direction:
+        name: "Target 2 Direction"
+    target_3:
+      direction:
+        name: "Target 3 Direction"
+
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+    ssid:
+      name: "Connected SSID"
+    bssid:
+      name: "Connected BSSID"
+    mac_address:
+      name: "MAC Address"
