@@ -23,6 +23,7 @@
 //! - `c6-http`: every 5 s; emits only if MQTT has been quiet.
 
 use serde::Deserialize;
+use std::collections::VecDeque;
 use std::net::UdpSocket;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -35,6 +36,16 @@ const VITALS_MAGIC: u32 = 0xC511_0002;
 /// mmwave_type_t enum in firmware/esp32-csi-node/main/mmwave_sensor.h.
 pub const RADAR_TYPE_MR60BHA2: u8 = 1;
 pub const RADAR_TYPE_LD2410: u8 = 2;
+/// LD2450 — 24 GHz multi-target tracking radar. Unlike the MR60/LD2410 (single
+/// aggregate presence + range), it reports up to 3 targets with (x, y) and a
+/// true multi-person count. This is the only sensor in the fleet that can
+/// actually count people, so ingesting it lets the server's occupancy be real.
+pub const RADAR_TYPE_LD2450: u8 = 3;
+
+/// LD2450 rated maximum range (mm). Targets beyond this are gated out as ghosts
+/// — mirrors the iOS-side fix. An antenna-less LD2450 hallucinates a persistent
+/// target out at ~7 m; even with the antenna on, real targets are always ≤ 6 m.
+const LD2450_MAX_RANGE_MM: f64 = 6000.0;
 
 /// Configuration for one ESPHome radar bridge instance. The module supports
 /// running multiple instances simultaneously (e.g., one for the C6/MR60BHA2,
@@ -130,6 +141,38 @@ struct RadarState {
     last_hr_seen: Option<f64>,
     last_br_seen: Option<f64>,
     motion_energy_ema: f32,
+
+    // Which radar this state serves (set once in spawn()). Drives snapshot()
+    // behaviour: LD2450 counts+tracks, MR60/LD2410 do single-presence vitals.
+    radar_type: u8,
+
+    // ── LD2450 multi-target tracking state ──────────────────────────────────
+    // Latest (x_mm, y_mm) per target slot 0..3; None = empty/no target. Count
+    // is derived from these (range-gated + de-split), NOT the raw target_count
+    // register, which tallies out-of-range ghosts and near-field body-splits.
+    ld2450_targets: [Option<(f64, f64)>; 3],
+    // MQTT delivers target_N_x and target_N_y in separate messages; stage the
+    // half-updates here until both coords are known, then resolve the slot.
+    ld2450_stage: [(Option<f64>, Option<f64>); 3],
+    // Last de-split validated count, for the persistence/hysteresis gate.
+    ld2450_last_count: u8,
+    // Consecutive snapshots the raw validated count has held its new value.
+    ld2450_count_candidate: u8,
+    ld2450_count_streak: u8,
+    // Previous nearest-target position, for deriving motion from displacement.
+    ld2450_last_nearest: Option<(f64, f64)>,
+
+    // ── Fall heuristic state (see update_fall) ──────────────────────────────
+    fall_spike_at: Option<Instant>,
+    fall_still_since: Option<Instant>,
+    fall_latched_until: Option<Instant>,
+
+    // ── C6 static-clutter rejection ─────────────────────────────────────────
+    // Recent target_distance readings (cm). A real person — even sitting still —
+    // has breathing/sway so their distance jitters; a static object (wall, box)
+    // gives a dead-constant distance. Near-zero variance ⇒ clutter, and the
+    // MR60BHA2 will fabricate a "heartbeat" off it, so we suppress presence+vitals.
+    recent_dists: VecDeque<u16>,
 }
 
 // Physiologic plausibility ranges. The MR60BHA2 emits real but uninformative
@@ -155,6 +198,26 @@ const PRESENCE_STICKY_WINDOW: Duration = Duration::from_secs(1);
 // transiently in the cone (walking through). This window controls how
 // long the inferred presence persists after the last distance change.
 const DISTANCE_MOTION_WINDOW: Duration = Duration::from_secs(3);
+
+// ── LD2450 count stabilisation ──────────────────────────────────────────────
+// Two LD2450 "targets" closer than this are the same person split into two
+// tracks by near-field multipath — merge them. 0.7 m is wider than a person's
+// torso jitter but tighter than the gap between two real adults standing apart.
+const LD2450_DESPLIT_MM: f64 = 700.0;
+// A raised count must persist this many consecutive snapshots before we report
+// it (kills the 1→2→1 flicker). Drops apply immediately so walk-out stays fast.
+const LD2450_COUNT_PERSIST: u8 = 3;
+
+// ── Fall heuristic thresholds (see update_fall) ─────────────────────────────
+// A fall = an abrupt motion spike immediately followed by sustained stillness
+// while presence persists (person moved violently, then went motionless but is
+// still there). These are conservative first-pass values that need field
+// tuning; real fall detection wants labelled data / dedicated hardware (ADR-063/064).
+const FALL_SPIKE_ENERGY: f32 = 10.0;      // motion_energy indicating abrupt movement
+const FALL_STILL_ENERGY: f32 = 1.0;       // "now motionless" threshold
+const FALL_SPIKE_WINDOW: Duration = Duration::from_secs(5);   // spike must be this recent
+const FALL_STILL_MIN: Duration = Duration::from_millis(1500); // stillness sustained this long
+const FALL_HOLD: Duration = Duration::from_secs(15);          // latch fall=true for alerting
 
 impl RadarState {
     fn note_hr(&mut self, v: f64) {
@@ -189,6 +252,25 @@ impl RadarState {
             self.last_distance_value = Some(cm);
         }
         self.target_distance_cm = Some(cm);
+        // Track recent distances for static-clutter detection (keep ~20 ≈ a few s).
+        self.recent_dists.push_back(cm);
+        while self.recent_dists.len() > 20 {
+            self.recent_dists.pop_front();
+        }
+    }
+
+    /// A real person (even still) has breathing/sway, so their measured
+    /// distance jitters; a static object gives a dead-constant distance. If the
+    /// last ~15+ distance samples are all identical, it's clutter — and the
+    /// MR60BHA2 will fabricate a heartbeat off it, so presence+vitals are
+    /// suppressed by snapshot().
+    fn distance_is_static_clutter(&self) -> bool {
+        if self.recent_dists.len() < 15 {
+            return false;
+        }
+        let mn = self.recent_dists.iter().copied().min().unwrap_or(0);
+        let mx = self.recent_dists.iter().copied().max().unwrap_or(0);
+        mx > 0 && mx == mn
     }
     fn note_rssi(&mut self, dbm: i8) {
         self.wifi_rssi_dbm = Some(dbm);
@@ -227,9 +309,168 @@ impl RadarState {
             .unwrap_or(false)
     }
 
+    /// Record one LD2450 target slot's (x, y) in mm. `None` clears the slot.
+    fn note_ld2450_target(&mut self, slot: usize, xy: Option<(f64, f64)>) {
+        if slot < 3 {
+            // A parked (0,0) or NaN means "no target" — normalise to None.
+            self.ld2450_targets[slot] = match xy {
+                Some((x, y)) if x.is_finite() && y.is_finite() && !(x == 0.0 && y == 0.0) => {
+                    Some((x, y))
+                }
+                _ => None,
+            };
+        }
+    }
+
+    /// In-range targets after de-ghosting (drop anything beyond the rated range).
+    fn ld2450_valid_points(&self) -> Vec<(f64, f64)> {
+        self.ld2450_targets
+            .iter()
+            .filter_map(|t| *t)
+            .filter(|(x, y)| {
+                let d = (x * x + y * y).sqrt();
+                d > 0.0 && d <= LD2450_MAX_RANGE_MM
+            })
+            .collect()
+    }
+
+    /// De-split validated count: cluster targets within LD2450_DESPLIT_MM (a
+    /// single close person that the radar split into two tracks) into one.
+    fn ld2450_desplit_count(&self) -> u8 {
+        let pts = self.ld2450_valid_points();
+        let n = pts.len();
+        let mut used = [false; 3];
+        let mut clusters = 0u8;
+        for i in 0..n {
+            if used[i] {
+                continue;
+            }
+            clusters += 1;
+            for j in (i + 1)..n {
+                if !used[j] {
+                    let d = ((pts[i].0 - pts[j].0).powi(2) + (pts[i].1 - pts[j].1).powi(2)).sqrt();
+                    if d < LD2450_DESPLIT_MM {
+                        used[j] = true;
+                    }
+                }
+            }
+        }
+        clusters
+    }
+
+    /// Persistence + hysteresis gate over the de-split count: a raised count
+    /// must hold for LD2450_COUNT_PERSIST snapshots before we report it; drops
+    /// apply immediately (fast walk-out). Returns the stabilised count.
+    fn ld2450_stable_count(&mut self) -> u8 {
+        let raw = self.ld2450_desplit_count();
+        if raw <= self.ld2450_last_count {
+            // Decrease (or unchanged-lower): accept immediately.
+            self.ld2450_last_count = raw;
+            self.ld2450_count_candidate = raw;
+            self.ld2450_count_streak = 0;
+        } else {
+            // Increase: require the higher value to persist.
+            if raw == self.ld2450_count_candidate {
+                self.ld2450_count_streak = self.ld2450_count_streak.saturating_add(1);
+            } else {
+                self.ld2450_count_candidate = raw;
+                self.ld2450_count_streak = 1;
+            }
+            if self.ld2450_count_streak >= LD2450_COUNT_PERSIST {
+                self.ld2450_last_count = raw;
+            }
+        }
+        self.ld2450_last_count
+    }
+
+    /// Nearest in-range target (x, y), for distance + motion derivation.
+    fn ld2450_nearest(&self) -> Option<(f64, f64)> {
+        self.ld2450_valid_points()
+            .into_iter()
+            .min_by(|a, b| {
+                let da = a.0 * a.0 + a.1 * a.1;
+                let db = b.0 * b.0 + b.1 * b.1;
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            })
+    }
+
+    /// Fall heuristic: an abrupt motion spike (energy ≥ FALL_SPIKE_ENERGY)
+    /// followed by sustained stillness (≤ FALL_STILL_ENERGY for FALL_STILL_MIN)
+    /// while presence persists → latch fall=true for FALL_HOLD. Conservative,
+    /// debounced first-pass; see the threshold notes above.
+    fn update_fall(&mut self, present: bool, energy: f32) -> bool {
+        let now = Instant::now();
+        if energy >= FALL_SPIKE_ENERGY {
+            self.fall_spike_at = Some(now);
+        }
+        let spike_recent = self
+            .fall_spike_at
+            .map(|t| now.duration_since(t) <= FALL_SPIKE_WINDOW)
+            .unwrap_or(false);
+        if present && energy <= FALL_STILL_ENERGY {
+            if self.fall_still_since.is_none() {
+                self.fall_still_since = Some(now);
+            }
+        } else {
+            self.fall_still_since = None;
+        }
+        let still_sustained = self
+            .fall_still_since
+            .map(|t| now.duration_since(t) >= FALL_STILL_MIN)
+            .unwrap_or(false);
+        if spike_recent && still_sustained && present {
+            self.fall_latched_until = Some(now + FALL_HOLD);
+            self.fall_spike_at = None; // consume the spike
+        }
+        self.fall_latched_until
+            .map(|t| now < t)
+            .unwrap_or(false)
+    }
+
+    /// LD2450 snapshot: stabilised multi-target count + position, no vitals.
+    fn snapshot_ld2450(&mut self) -> RadarSnapshot {
+        let count = self.ld2450_stable_count();
+        let present = count > 0;
+        // Motion from nearest-target displacement since the last snapshot: a
+        // fall/lunge is a large one-shot jump, steady walking a moderate one.
+        let nearest = self.ld2450_nearest();
+        let disp = match (self.ld2450_last_nearest, nearest) {
+            (Some((px, py)), Some((x, y))) => ((x - px).powi(2) + (y - py).powi(2)).sqrt(),
+            _ => 0.0,
+        };
+        self.ld2450_last_nearest = nearest;
+        let raw_motion = if present {
+            (disp / 100.0).clamp(0.0, 50.0) as f32
+        } else {
+            0.0
+        };
+        self.motion_energy_ema = 0.3 * raw_motion + 0.7 * self.motion_energy_ema;
+        let dist_cm = nearest
+            .map(|(x, y)| ((x * x + y * y).sqrt() / 10.0).clamp(0.0, 65535.0) as u16)
+            .unwrap_or(0);
+        let energy = self.motion_energy_ema;
+        let fall_detected = self.update_fall(present, energy);
+        RadarSnapshot {
+            present,
+            motion: self.motion_energy_ema > 0.5,
+            heart_rate_bpm: 0.0, // LD2450 carries no vitals
+            breath_rate_bpm: 0.0,
+            target_distance_cm: dist_cm,
+            rssi_dbm: self.wifi_rssi_dbm.unwrap_or(0),
+            motion_energy: self.motion_energy_ema,
+            presence_score: if present { 0.9 } else { 0.05 },
+            n_persons: count,
+            fall_detected,
+        }
+    }
+
     /// Resolve a current packet snapshot, applying held-value fallback within
     /// `hold_max_age` so brief radar drop-outs don't zero the output.
     fn snapshot(&mut self, hold_max_age: Duration) -> RadarSnapshot {
+        // LD2450 is a counting/tracking radar, not a vitals one — its own path.
+        if self.radar_type == RADAR_TYPE_LD2450 {
+            return self.snapshot_ld2450();
+        }
         let held_recent = self
             .held_at
             .map(|t| Instant::now().duration_since(t) <= hold_max_age)
@@ -279,6 +520,8 @@ impl RadarState {
             && self.heart_rate_bpm.unwrap_or(0.0) > 0.0;
 
         let effective_present = self.person_present || distance_motion || vitals_evidence;
+        let energy = self.motion_energy_ema;
+        let fall_detected = self.update_fall(effective_present, energy);
         RadarSnapshot {
             present: effective_present,
             motion: self.motion_energy_ema > 0.5 || distance_motion,
@@ -302,6 +545,7 @@ impl RadarState {
                 0.05
             },
             n_persons: if effective_present { 1 } else { 0 },
+            fall_detected,
         }
     }
 }
@@ -317,6 +561,7 @@ struct RadarSnapshot {
     motion_energy: f32,
     presence_score: f32,
     n_persons: u8,
+    fall_detected: bool,
 }
 
 // ─── HTTP fallback types ────────────────────────────────────────────────────
@@ -379,6 +624,9 @@ fn encode_vitals_packet(
     }
     if s.motion {
         flags |= 0x04;
+    }
+    if s.fall_detected {
+        flags |= 0x02;
     }
     buf[5] = flags;
 
@@ -710,6 +958,7 @@ mod tests {
             motion_energy: 0.0,
             presence_score: if present { 0.85 } else { 0.05 },
             n_persons: if present { 1 } else { 0 },
+            fall_detected: false,
         }
     }
 
