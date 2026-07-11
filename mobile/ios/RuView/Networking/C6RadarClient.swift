@@ -222,6 +222,13 @@ final class LD2450Client: ObservableObject {
     // Snappier than the C6 (1.5s) because X/Y tracking should feel live.
     private let pollInterval: TimeInterval = 0.7
     private var consecutiveFailures: Int = 0
+
+    // LD2450 rated maximum range is 6 m. Targets reported beyond that are not
+    // physically valid — with the antenna disconnected the radar hallucinates a
+    // persistent "still" ghost out at ~7 m, which inflated the count to 2. Gate
+    // on the rated range so only real, in-range targets are counted. Also stays
+    // correct once the antenna is attached (real targets are always ≤ 6 m).
+    private let maxRangeMeters: Double = 6.0
     private let reachableMaxFailures: Int = 3
 
     init() {
@@ -286,15 +293,21 @@ final class LD2450Client: ObservableObject {
         for i in 0..<3 {
             // A slot is active only when it reports a real coordinate. Empty
             // slots come back as value:null, and a parked (0,0) means no target.
+            // Reject anything beyond the rated range — that's ghost, not person.
             if let x = xs[i], let y = ys[i], !(x == 0 && y == 0) {
-                targets.append(LD2450Target(id: i + 1, x: x, y: y))
+                let t = LD2450Target(id: i + 1, x: x, y: y)
+                if t.distanceMeters <= maxRangeMeters {
+                    targets.append(t)
+                }
             }
         }
 
         consecutiveFailures = 0
         isReachable = true
         reading = LD2450Reading(
-            targetCount: countR.map { Int($0) } ?? targets.count,
+            // Count from validated, in-range targets — NOT the raw target_count
+            // register, which still tallies out-of-range ghosts.
+            targetCount: targets.count,
             movingCount: movingR.map { Int($0) } ?? 0,
             targets: targets,
             personPresent: presentR ?? !targets.isEmpty,
