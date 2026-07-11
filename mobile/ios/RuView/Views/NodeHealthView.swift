@@ -60,13 +60,16 @@ struct NodeHealthView: View {
     /// so it's rostered here from the view model's live radar state.
     private var ld2450Online: Bool { viewModel.ld2450Reachable }
     private var ld2410Online: Bool { viewModel.ld2410Reachable }
+    private var micOnline: Bool { viewModel.micReachable }
 
-    /// Direct-poll radar nodes online (LD2450 + LD2410).
-    private var directOnline: Int { (ld2450Online ? 1 : 0) + (ld2410Online ? 1 : 0) }
+    /// Direct-poll nodes online (LD2450 + LD2410 + INMP441 mic).
+    private var directOnline: Int {
+        (ld2450Online ? 1 : 0) + (ld2410Online ? 1 : 0) + (micOnline ? 1 : 0)
+    }
 
-    /// Total expected positions = server-rostered dome nodes + the 2 direct
-    /// radar nodes (LD2450 tracking + LD2410C presence).
-    private var totalExpected: Int { expectedRoster.count + 2 }
+    /// Total expected positions = server-rostered dome nodes + the 3 direct
+    /// nodes (LD2450 tracking + LD2410C presence + INMP441 audio).
+    private var totalExpected: Int { expectedRoster.count + 3 }
 
     private var onlineCount: Int {
         expectedRoster.filter { activeNode(for: $0) != nil }.count + directOnline
@@ -157,6 +160,9 @@ struct NodeHealthView: View {
                 LD2410NodeCard(reachable: viewModel.ld2410Reachable,
                                reading: viewModel.ld2410Reading,
                                mac: "E0:72:A1:D6:03:DC")
+                MicNodeCard(reachable: viewModel.micReachable,
+                            reading: viewModel.micReading,
+                            mac: "E0:72:A1:FC:C8:7C")
                 ForEach(expectedRoster) { expected in
                     if let active = activeNode(for: expected) {
                         NodeCard(
@@ -752,6 +758,120 @@ private struct LD2410NodeCard: View {
         HStack(spacing: 5) {
             LivePulseDot(color: .lungTeal, size: 6, active: true)
             Text("Live").font(.caption2).foregroundColor(.lungTeal)
+        }
+    }
+
+    private var offlineBadge: some View {
+        HStack(spacing: 3) {
+            Circle().fill(Color.healthSub).frame(width: 7, height: 7)
+            Text("Offline").font(.caption2).fontWeight(.medium)
+        }
+        .foregroundColor(.healthSub)
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(Color.healthSub.opacity(0.10)).cornerRadius(6)
+    }
+}
+
+// MARK: - MicNodeCard
+//
+// INMP441 I²S audio node — direct-poll sourced, shows live Leq level + peak
+// with a simple level bar. Same card language as the radar nodes.
+
+private struct MicNodeCard: View {
+    let reachable: Bool
+    let reading: MicReading?
+    let mac: String
+
+    // Map dBFS (~ -70…0) to a 0…1 bar for a quick visual level.
+    private var level: Double {
+        guard let db = reading?.leqDb else { return 0 }
+        return min(1, max(0, (db + 70) / 70))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Mic")
+                        .font(.callout).fontWeight(.semibold)
+                        .foregroundColor(reachable ? .healthText : .healthSub)
+                        .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                    Text("AUDIO")
+                        .font(.system(size: 9, weight: .semibold)).tracking(1.0)
+                        .foregroundColor(.steel)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(Color.steel.opacity(0.12)).cornerRadius(4)
+                        .lineLimit(1)
+                    Text(mac)
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(.healthSub).tracking(0.3)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                }
+                Spacer()
+                if reachable { activeDot } else { offlineBadge }
+            }
+
+            HStack(spacing: 4) {
+                Image(systemName: "waveform").font(.system(size: 9, weight: .semibold))
+                Text("INMP441 I²S").font(.system(size: 10, weight: .medium))
+            }
+            .foregroundColor(.steel)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Color.steel.opacity(0.12)).cornerRadius(4)
+
+            if reachable, let r = reading, let leq = r.leqDb {
+                HStack(alignment: .bottom, spacing: 8) {
+                    Text(String(format: "%.0f", leq))
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .foregroundColor(.healthText).monospacedDigit()
+                        .contentTransition(.numericText())
+                    Text("dB").font(.caption).foregroundColor(.healthSub)
+                }
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.steelLight.opacity(0.35)).frame(height: 6)
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.steel)
+                            .frame(width: geo.size.width * CGFloat(level), height: 6)
+                    }
+                }
+                .frame(height: 6)
+                if let peak = r.peakDb {
+                    HStack(spacing: 4) {
+                        Image(systemName: "speaker.wave.2.fill").font(.caption2).foregroundColor(.healthSub)
+                        Text(String(format: "peak %.0f dB", peak))
+                            .font(.caption2).foregroundColor(.healthSub).monospacedDigit()
+                    }
+                }
+            } else {
+                Spacer(minLength: 0)
+                VStack(spacing: 6) {
+                    Image(systemName: "waveform.slash")
+                        .font(.system(size: 28)).foregroundColor(.steelLight)
+                    Text("Awaiting connection")
+                        .font(.caption2).foregroundColor(.healthSub)
+                }
+                .frame(maxWidth: .infinity)
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(14)
+        .frame(minHeight: 200, alignment: .top)
+        .background(Color.surface)
+        .cornerRadius(14)
+        .shadow(color: Color.steel.opacity(reachable ? 0.10 : 0.05), radius: 6, x: 0, y: 2)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(reachable ? Color.steel.opacity(0.30) : Color.healthSub.opacity(0.25),
+                        lineWidth: 1.5)
+        )
+    }
+
+    private var activeDot: some View {
+        HStack(spacing: 5) {
+            LivePulseDot(color: .steel, size: 6, active: true)
+            Text("Live").font(.caption2).foregroundColor(.steel)
         }
     }
 

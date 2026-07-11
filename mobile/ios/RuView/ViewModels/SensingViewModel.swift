@@ -43,6 +43,15 @@ final class SensingViewModel: ObservableObject {
         UserDefaults.standard.string(forKey: "ld2410Host") ?? "192.168.7.153"
     }
 
+    // MARK: - INMP441 audio node (direct ESPHome poller)
+    let micClient: MicClient
+    @Published var micReading: MicReading?
+    @Published var micReachable: Bool = false
+
+    private var micHost: String {
+        UserDefaults.standard.string(forKey: "micHost") ?? "192.168.7.151"
+    }
+
     // MARK: - Published state mirrored from client
     @Published var snapshot: SensingSnapshot?
     @Published var isConnected: Bool = false
@@ -170,10 +179,21 @@ final class SensingViewModel: ObservableObject {
         self.radarClient = C6RadarClient()
         self.ld2450Client = LD2450Client()
         self.ld2410Client = LD2410Client()
+        self.micClient = MicClient()
         bindClientPublishers()
         bindRadarPublishers()
         bindLD2450Publishers()
         bindLD2410Publishers()
+        bindMicPublishers()
+    }
+
+    private func bindMicPublishers() {
+        micClient.$reading
+            .receive(on: RunLoop.main)
+            .assign(to: &$micReading)
+        micClient.$isReachable
+            .receive(on: RunLoop.main)
+            .assign(to: &$micReachable)
     }
 
     private func bindLD2410Publishers() {
@@ -277,6 +297,7 @@ final class SensingViewModel: ObservableObject {
         radarClient.start(host: c6RadarHost)
         ld2450Client.start(host: ld2450Host)
         ld2410Client.start(host: ld2410Host)
+        micClient.start(host: micHost)
     }
 
     func disconnect() {
@@ -286,6 +307,7 @@ final class SensingViewModel: ObservableObject {
         radarClient.stop()
         ld2450Client.stop()
         ld2410Client.stop()
+        micClient.stop()
         stopPolling()
         nodes = []
         zones = []

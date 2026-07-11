@@ -460,3 +460,93 @@ final class LD2410Client: ObservableObject {
         } catch { return nil }
     }
 }
+
+// MARK: - INMP441 (I²S audio level)
+
+struct MicReading {
+    let leqDb: Double?     // A/eq sound level, dBFS (negative)
+    let peakDb: Double?    // peak level, dBFS
+    let timestamp: Date
+}
+
+/// Direct ESPHome poller for the INMP441 audio node — reads the on-device
+/// sound-level-meter (Leq + Peak). Same pattern as the radar clients.
+@MainActor
+final class MicClient: ObservableObject {
+
+    @Published var reading: MicReading?
+    @Published var isReachable: Bool = false
+
+    private var host: String = ""
+    private var pollTask: Task<Void, Never>?
+    private let urlSession: URLSession
+    private let pollInterval: TimeInterval = 1.0
+    private var consecutiveFailures: Int = 0
+    private let reachableMaxFailures: Int = 3
+
+    init() {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 3
+        cfg.timeoutIntervalForResource = 5
+        cfg.waitsForConnectivity = false
+        self.urlSession = URLSession(configuration: cfg)
+    }
+
+    func start(host: String) {
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if pollTask != nil && trimmed == self.host { return }
+        stop()
+        self.host = trimmed
+        pollTask = Task { [weak self] in await self?.pollLoop() }
+    }
+
+    func stop() {
+        pollTask?.cancel()
+        pollTask = nil
+        isReachable = false
+        reading = nil
+        consecutiveFailures = 0
+    }
+
+    private func pollLoop() async {
+        while !Task.isCancelled {
+            await pollOnce()
+            try? await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
+        }
+    }
+
+    private func pollOnce() async {
+        guard !host.isEmpty else { return }
+        // Object-ids: "Audio Level (Leq)" -> audio_level__leq_ ; "Audio Peak" -> audio_peak
+        async let leq  = fetchNumeric("/sensor/audio_level__leq_")
+        async let peak = fetchNumeric("/sensor/audio_peak")
+        let l = await leq, p = await peak
+
+        if l == nil && p == nil {
+            consecutiveFailures += 1
+            if consecutiveFailures >= reachableMaxFailures {
+                isReachable = false
+                reading = nil
+            }
+            return
+        }
+        consecutiveFailures = 0
+        isReachable = true
+        reading = MicReading(leqDb: l, peakDb: p, timestamp: Date())
+    }
+
+    private func fetchNumeric(_ path: String) async -> Double? {
+        guard let url = URL(string: "http://\(host)\(path)") else { return nil }
+        do {
+            let (data, response) = try await urlSession.data(from: url)
+            guard let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode) else { return nil }
+            // -inf/inf come back as non-finite; treat as no reading.
+            if let v = try JSONDecoder().decode(ESPValue.self, from: data).value, v.isFinite {
+                return v
+            }
+            return nil
+        } catch { return nil }
+    }
+}
