@@ -12,6 +12,7 @@ struct OccupancyView: View {
                               trailing: (viewModel.isLiveDataFlowing || viewModel.radarCountIsLive) ? "Live · Updated just now" : "Waiting for data")
                 personCountCard
                 ld2450TrackingSection
+                soundCard
                 stateSummaryCard
                 presenceTimelineStrip
                 SectionHeader(title: "Details")
@@ -169,6 +170,36 @@ struct OccupancyView: View {
             }
             .ruCard()
             .animation(.easeOut(duration: 0.25), value: viewModel.radarOccupantCount)
+        }
+    }
+
+    // MARK: - Sound (INMP441 mic — loudness only, interim before voice sentiment)
+
+    @ViewBuilder
+    private var soundCard: some View {
+        if viewModel.micReachable {
+            SectionHeader(title: "Sound", trailing: "INMP441 mic")
+            HStack(spacing: 14) {
+                Image(systemName: viewModel.impactDetected
+                      ? "waveform.badge.exclamationmark"
+                      : (viewModel.soundActive ? "waveform" : "waveform.slash"))
+                    .font(.system(size: 30))
+                    .foregroundColor(viewModel.impactDetected ? .red
+                                     : (viewModel.soundActive ? .steel : .healthSub))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(viewModel.impactDetected ? "Loud event detected"
+                         : (viewModel.soundActive ? "Sound activity" : "Quiet"))
+                        .font(.callout).fontWeight(.semibold)
+                        .foregroundColor(viewModel.impactDetected ? .red : .healthText)
+                    Text(viewModel.soundLevelDb.map { String(format: "%.0f dB", $0) } ?? "—")
+                        .font(.caption).foregroundColor(.healthSub).monospacedDigit()
+                }
+                Spacer()
+                SoundLevelBar(db: viewModel.soundLevelDb, active: viewModel.soundActive)
+            }
+            .ruCard()
+            .animation(.easeOut(duration: 0.2), value: viewModel.impactDetected)
+            .animation(.easeOut(duration: 0.2), value: viewModel.soundActive)
         }
     }
 
@@ -447,6 +478,23 @@ struct OccupancyView: View {
 /// Bird's-eye view of the LD2450's field: the sensor sits at bottom-center
 /// looking "up" the view. X maps left↔right, Y maps near↔far. Each active
 /// target is a labelled dot with its straight-line distance.
+/// Compact live sound-level meter. Maps Leq (-60…-10 dBFS) to a 0…1 fill.
+private struct SoundLevelBar: View {
+    let db: Double?
+    let active: Bool
+    var body: some View {
+        let level = db.map { max(0.0, min(1.0, ($0 + 60.0) / 50.0)) } ?? 0.0
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.steel.opacity(0.15))
+                Capsule().fill(active ? Color.steel : Color.healthSub)
+                    .frame(width: max(4, geo.size.width * level))
+            }
+        }
+        .frame(width: 96, height: 8)
+    }
+}
+
 private struct LD2450RadarPlot: View {
     let targets: [LD2450Target]
 

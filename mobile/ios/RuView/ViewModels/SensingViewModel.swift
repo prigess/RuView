@@ -48,6 +48,40 @@ final class SensingViewModel: ObservableObject {
     @Published var micReading: MicReading?
     @Published var micReachable: Bool = false
 
+    // ── Mic-derived signals (loudness only, until the voice-streaming upgrade) ──
+    /// Current A-weighted sound level (Leq, dBFS — negative).
+    @Published var soundLevelDb: Double?
+    /// True when the room is meaningfully louder than its ambient floor —
+    /// someone talking / moving / active.
+    @Published var soundActive: Bool = false
+    /// Latched for a few seconds after a sharp loud peak (clap, shout, thud) —
+    /// a possible impact / call-for-help. The elder-care "loud event" trigger.
+    @Published var impactDetected: Bool = false
+    /// Adaptive ambient noise floor (EMA of quiet samples), for the above.
+    private var soundBaselineDb: Double = -45
+    private var soundBaselineSeeded: Bool = false
+    private var lastImpactAt: Date?
+
+    /// Update the mic-derived signals from one reading. Seeds an ambient floor,
+    /// then flags "active" when Leq rises above it and "impact" on a peak spike.
+    private func ingestMic(_ reading: MicReading?) {
+        guard let leq = reading?.leqDb, leq.isFinite else { return }
+        soundLevelDb = leq
+        if !soundBaselineSeeded {
+            soundBaselineDb = leq
+            soundBaselineSeeded = true
+        } else if leq < soundBaselineDb + 10 {
+            // Only quiet-ish samples pull the floor; loud spikes don't raise it.
+            soundBaselineDb = 0.05 * leq + 0.95 * soundBaselineDb
+        }
+        soundActive = leq > soundBaselineDb + 8
+        let peak = reading?.peakDb ?? leq
+        if peak > soundBaselineDb + 20 || peak > -12 {
+            lastImpactAt = Date()
+        }
+        impactDetected = lastImpactAt.map { Date().timeIntervalSince($0) < 4 } ?? false
+    }
+
     private var micHost: String {
         UserDefaults.standard.string(forKey: "micHost") ?? "192.168.7.151"
     }
@@ -204,6 +238,11 @@ final class SensingViewModel: ObservableObject {
         micClient.$isReachable
             .receive(on: RunLoop.main)
             .assign(to: &$micReachable)
+        // Derive activity + impact from each mic reading.
+        micClient.$reading
+            .receive(on: RunLoop.main)
+            .sink { [weak self] reading in self?.ingestMic(reading) }
+            .store(in: &cancellables)
     }
 
     private func bindLD2410Publishers() {
