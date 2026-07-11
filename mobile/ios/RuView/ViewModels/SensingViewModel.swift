@@ -52,15 +52,14 @@ final class SensingViewModel: ObservableObject {
         UserDefaults.standard.string(forKey: "micHost") ?? "192.168.7.151"
     }
 
-    /// The LD2450 can only be trusted to *count* once its antenna is attached.
-    /// Antenna-less, it emits stable ghost targets at arbitrary in-range
-    /// positions (observed at 2–7 m) that no spatial filter can separate from a
-    /// real person — so until the antenna is on we treat the LD2450 as a
-    /// diagnostic plot only and count from the reliable presence sensors
-    /// (LD2410C + C6). Flip this UserDefaults flag to true once the antenna is
-    /// attached to re-enable true multi-target counting.
+    /// Whether the LD2450's antenna is attached. With the antenna on (the
+    /// normal state) the radar gives a trustworthy multi-target count, so this
+    /// defaults to TRUE. Antenna-less, the LD2450 emits stable ghost targets at
+    /// arbitrary in-range positions (observed at 2–7 m) that no spatial filter
+    /// can separate from a real person; set this flag to false ("safe mode") to
+    /// fall back to counting from the presence sensors (LD2410C + C6) only.
     var ld2450AntennaConnected: Bool {
-        UserDefaults.standard.bool(forKey: "ld2450AntennaConnected")
+        UserDefaults.standard.object(forKey: "ld2450AntennaConnected") as? Bool ?? true
     }
 
     // MARK: - Published state mirrored from client
