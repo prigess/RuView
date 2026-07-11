@@ -22,13 +22,11 @@ private struct ExpectedNode: Identifiable {
 // 1 ESP32-C6 radar (currently off-network at the office).
 // Pi at 192.168.7.205 (with 192.168.7.212 as a persistent secondary IP
 // for legacy S3 target_ip compatibility).
-// 2026-06-26 — Norim office demo: only the ESP32-C6 + MR60BHA2 radar is
-// deployed here. S3 CSI nodes are not in the room; omit them from the
-// roster so the dashboard reads "1 / 1 online" rather than "1 / 4 online".
-private let expectedRoster: [ExpectedNode] = [
-    ExpectedNode(id: 4, acceptedIds: [4], name: "Node 4", position: "South",
-                 mac: "58:e6:c5:13:5a:9c", chip: "ESP32-C6"),
-]
+// 2026-07-11 — C6 (MR60BHA2, node 4) removed from the roster: it fabricates
+// presence + a phantom heartbeat off near-field static clutter, so it's out of
+// the demo mix. The live nodes are all direct-poll: LD2450 (count/tracking),
+// LD2410C (presence), INMP441 (audio). Empty server roster ⇒ no offline C6 card.
+private let expectedRoster: [ExpectedNode] = []
 
 // MARK: - NodeHealthView
 
@@ -122,7 +120,7 @@ struct NodeHealthView: View {
             Divider().frame(height: 44)
             summaryItem(label: "Online", value: "\(onlineCount)",
                         icon: "checkmark.circle.fill",
-                        color: onlineCount == expectedRoster.count ? .steel
+                        color: onlineCount == totalExpected ? .steel
                               : onlineCount == 0 ? .orange : .steel)
             Divider().frame(height: 44)
             summaryItem(label: "Offline", value: "\(offlineCount)",
