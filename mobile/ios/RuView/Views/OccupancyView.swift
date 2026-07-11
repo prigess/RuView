@@ -119,17 +119,36 @@ struct OccupancyView: View {
         if viewModel.ld2450Reachable, let reading = viewModel.ld2450Reading {
             SectionHeader(title: "Live Tracking", trailing: "LD2450 radar")
             VStack(spacing: 16) {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text("\(reading.targetCount)")
-                        .font(.system(size: 46, weight: .bold, design: .rounded))
-                        .foregroundColor(.healthText)
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(reading.targetCount == 1 ? "person tracked" : "people tracked")
+                HStack(alignment: .center, spacing: 12) {
+                    if reading.targetCount > 0 {
+                        Text("\(reading.targetCount)")
+                            .font(.system(size: 46, weight: .bold, design: .rounded))
+                            .foregroundColor(.healthText)
+                            .monospacedDigit()
+                            .contentTransition(.numericText())
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(reading.targetCount == 1 ? "person tracked" : "people tracked")
+                                .font(.callout).foregroundColor(.healthSub)
+                            Text("\(reading.movingCount) moving")
+                                .font(.caption).foregroundColor(.healthSub.opacity(0.7))
+                        }
+                    } else if viewModel.anyPresenceEvidence {
+                        // Someone's in the room (hero shows them) but the radar
+                        // can't localize them — keep this coherent with the hero.
+                        Image(systemName: "figure.stand")
+                            .font(.system(size: 30)).foregroundColor(.steel)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Person present")
+                                .font(.callout).fontWeight(.semibold).foregroundColor(.healthText)
+                            Text("Position not resolved by radar")
+                                .font(.caption).foregroundColor(.healthSub)
+                        }
+                    } else {
+                        Text("0")
+                            .font(.system(size: 46, weight: .bold, design: .rounded))
+                            .foregroundColor(.healthSub)
+                        Text("no one tracked")
                             .font(.callout).foregroundColor(.healthSub)
-                        Text("\(reading.movingCount) moving")
-                            .font(.caption).foregroundColor(.healthSub.opacity(0.7))
                     }
                     Spacer()
                     HStack(spacing: 6) {
@@ -141,8 +160,11 @@ struct OccupancyView: View {
                 LD2450RadarPlot(targets: reading.targets)
                     .frame(height: 230)
                 if reading.targets.isEmpty {
-                    Text("No targets in view")
+                    Text(viewModel.anyPresenceEvidence
+                         ? "Detected by presence sensor — outside the radar's localization range"
+                         : "No targets in radar view")
                         .font(.caption).foregroundColor(.healthSub.opacity(0.7))
+                        .multilineTextAlignment(.center)
                 }
             }
             .ruCard()
