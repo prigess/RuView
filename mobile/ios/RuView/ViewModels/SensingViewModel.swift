@@ -304,7 +304,12 @@ final class SensingViewModel: ObservableObject {
     func connect(host: String) {
         client.connect(host: host)
         startPolling()
-        radarClient.start(host: c6RadarHost)
+        // C6 (MR60BHA2) intentionally NOT started: it fabricates presence + a
+        // phantom heartbeat off near-field static clutter, which poisons the
+        // fused count/vitals. Removed from the mix until it can be placed with a
+        // clear near field. Every fusion path is gated on `radarReachable`, so
+        // leaving it unstarted (radarReachable stays false) cleanly excludes it.
+        // radarClient.start(host: c6RadarHost)
         ld2450Client.start(host: ld2450Host)
         ld2410Client.start(host: ld2410Host)
         micClient.start(host: micHost)

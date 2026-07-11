@@ -65,9 +65,11 @@ struct OccupancyView: View {
                     .font(.title3)
                     .foregroundColor(.white.opacity(0.85))
 
-                // Inline vitals only when someone is here — tells the full
-                // story without the caregiver hopping to the Vitals tab.
-                if occupantCount > 0 {
+                // Inline vitals only when someone is here AND a vitals sensor is
+                // actually reporting — with no C6 attached we hide the row rather
+                // than show a broken "—/—".
+                if occupantCount > 0,
+                   viewModel.fusedHeartRate != nil || viewModel.fusedBreathingRate != nil {
                     HStack(spacing: 22) {
                         vitalChip(icon: "heart.fill",
                                   value: viewModel.fusedHeartRate.map { "\($0)" } ?? "—",
