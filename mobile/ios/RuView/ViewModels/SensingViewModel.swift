@@ -48,6 +48,13 @@ final class SensingViewModel: ObservableObject {
     @Published var micReading: MicReading?
     @Published var micReachable: Bool = false
 
+    // ── Voice intelligence (Orange Pi ruview-audiod, :3025) ──────────────────
+    // The Pi does all the audio work (ESP32 mic → YAMNet → radar fusion); the
+    // app just renders the fused result. This is the live sound source now.
+    let audioClient: AudioClient
+    @Published var audioReading: AudioReading?
+    @Published var audioReachable: Bool = false
+
     // ── Mic-derived signals (loudness only, until the voice-streaming upgrade) ──
     /// Current A-weighted sound level (Leq, dBFS — negative).
     @Published var soundLevelDb: Double?
@@ -224,11 +231,22 @@ final class SensingViewModel: ObservableObject {
         self.ld2450Client = LD2450Client()
         self.ld2410Client = LD2410Client()
         self.micClient = MicClient()
+        self.audioClient = AudioClient()
         bindClientPublishers()
         bindRadarPublishers()
         bindLD2450Publishers()
         bindLD2410Publishers()
         bindMicPublishers()
+        bindAudioPublishers()
+    }
+
+    private func bindAudioPublishers() {
+        audioClient.$reading
+            .receive(on: RunLoop.main)
+            .assign(to: &$audioReading)
+        audioClient.$isReachable
+            .receive(on: RunLoop.main)
+            .assign(to: &$audioReachable)
     }
 
     private func bindMicPublishers() {
@@ -351,7 +369,11 @@ final class SensingViewModel: ObservableObject {
         // radarClient.start(host: c6RadarHost)
         ld2450Client.start(host: ld2450Host)
         ld2410Client.start(host: ld2410Host)
-        micClient.start(host: micHost)
+        // The mic node was reflashed to the raw-audio streamer (no ESPHome HTTP),
+        // so sound now comes from the Pi's voice-intelligence daemon over REST
+        // (YAMNet + radar fusion), not the on-device loudness sensors.
+        // micClient.start(host: micHost)
+        audioClient.start(host: host)   // Orange Pi :3025 /api/v1/audio
     }
 
     func disconnect() {
@@ -362,6 +384,7 @@ final class SensingViewModel: ObservableObject {
         ld2450Client.stop()
         ld2410Client.stop()
         micClient.stop()
+        audioClient.stop()
         stopPolling()
         nodes = []
         zones = []

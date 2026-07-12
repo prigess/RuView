@@ -600,3 +600,102 @@ final class MicClient: ObservableObject {
         } catch { return nil }
     }
 }
+
+// MARK: - AudioClient (Pi voice-intelligence REST, :3025)
+//
+// Thin client for the Orange Pi's ruview-audiod. The Pi does ALL the audio
+// work (ESP32 mic → UDP → YAMNet → radar fusion); the app only renders the
+// result. Endpoint: GET http://<pi>:3025/api/v1/audio
+
+struct AudioEvent: Identifiable {
+    let id = UUID()
+    let label: String
+    let score: Double
+}
+
+struct AudioReading {
+    let levelDb: Double?
+    let active: Bool
+    let events: [AudioEvent]
+    let fused: String        // "conversation" | "tv_or_media" | "distress_present" | …
+    let radarPresent: Bool?
+    let stream: String       // "up" | "down"
+    let timestamp: Date
+}
+
+private struct AudioEventDTO: Decodable { let label: String; let score: Double }
+private struct AudioDTO: Decodable {
+    let level_db: Double?
+    let active: Bool?
+    let events: [AudioEventDTO]?
+    let fused: String?
+    let radar_present: Bool?
+    let stream: String?
+}
+
+@MainActor
+final class AudioClient: ObservableObject {
+    @Published var reading: AudioReading?
+    @Published var isReachable: Bool = false
+
+    private var host: String = ""            // Pi host (sensing-server host)
+    private let port: Int = 3025
+    private var pollTask: Task<Void, Never>?
+    private let urlSession: URLSession
+    private let pollInterval: TimeInterval = 1.0
+    private var consecutiveFailures = 0
+    private let maxFailures = 3
+
+    init() {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 3
+        cfg.timeoutIntervalForResource = 5
+        cfg.waitsForConnectivity = false
+        self.urlSession = URLSession(configuration: cfg)
+    }
+
+    func start(host: String) {
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if pollTask != nil && trimmed == self.host { return }
+        stop()
+        self.host = trimmed
+        pollTask = Task { [weak self] in await self?.pollLoop() }
+    }
+
+    func stop() {
+        pollTask?.cancel(); pollTask = nil
+        isReachable = false; reading = nil; consecutiveFailures = 0
+    }
+
+    private func pollLoop() async {
+        while !Task.isCancelled {
+            await pollOnce()
+            try? await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
+        }
+    }
+
+    private func pollOnce() async {
+        guard !host.isEmpty, let url = URL(string: "http://\(host):\(port)/api/v1/audio") else { return }
+        do {
+            let (data, resp) = try await urlSession.data(from: url)
+            guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+                  let dto = try? JSONDecoder().decode(AudioDTO.self, from: data) else {
+                throw URLError(.badServerResponse)
+            }
+            consecutiveFailures = 0
+            isReachable = true
+            reading = AudioReading(
+                levelDb: dto.level_db,
+                active: dto.active ?? false,
+                events: (dto.events ?? []).map { AudioEvent(label: $0.label, score: $0.score) },
+                fused: dto.fused ?? "idle",
+                radarPresent: dto.radar_present,
+                stream: dto.stream ?? "down",
+                timestamp: Date())
+        } catch {
+            consecutiveFailures += 1
+            if consecutiveFailures >= maxFailures { isReachable = false; reading = nil }
+        }
+    }
+}

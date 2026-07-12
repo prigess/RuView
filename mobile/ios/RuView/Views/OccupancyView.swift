@@ -173,33 +173,100 @@ struct OccupancyView: View {
         }
     }
 
-    // MARK: - Sound (INMP441 mic — loudness only, interim before voice sentiment)
+    // MARK: - Sound ID (Pi voice-intelligence: YAMNet + radar fusion, via REST)
 
     @ViewBuilder
     private var soundCard: some View {
-        if viewModel.micReachable {
-            SectionHeader(title: "Sound", trailing: "INMP441 mic")
-            HStack(spacing: 14) {
-                Image(systemName: viewModel.impactDetected
-                      ? "waveform.badge.exclamationmark"
-                      : (viewModel.soundActive ? "waveform" : "waveform.slash"))
-                    .font(.system(size: 30))
-                    .foregroundColor(viewModel.impactDetected ? .red
-                                     : (viewModel.soundActive ? .steel : .healthSub))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(viewModel.impactDetected ? "Loud event detected"
-                         : (viewModel.soundActive ? "Sound activity" : "Quiet"))
-                        .font(.callout).fontWeight(.semibold)
-                        .foregroundColor(viewModel.impactDetected ? .red : .healthText)
-                    Text(viewModel.soundLevelDb.map { String(format: "%.0f dB", $0) } ?? "—")
-                        .font(.caption).foregroundColor(.healthSub).monospacedDigit()
+        if viewModel.audioReachable, let a = viewModel.audioReading {
+            SectionHeader(title: "Sound ID", trailing: "INMP441 → Pi · YAMNet")
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    Image(systemName: fusedIcon(a.fused))
+                        .font(.system(size: 30)).foregroundColor(fusedColor(a.fused))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(fusedTitle(a.fused))
+                            .font(.title3).fontWeight(.bold).foregroundColor(fusedColor(a.fused))
+                        Text(fusedSubtitle(a.fused, present: a.radarPresent))
+                            .font(.caption).foregroundColor(.healthSub)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    if a.stream == "up" {
+                        HStack(spacing: 6) {
+                            LivePulseDot(color: .steel, size: 7, active: true)
+                            Text("LIVE").font(.caption2).fontWeight(.bold)
+                                .foregroundColor(.steel).tracking(1.5)
+                        }
+                    }
                 }
-                Spacer()
-                SoundLevelBar(db: viewModel.soundLevelDb, active: viewModel.soundActive)
+                if !a.events.isEmpty {
+                    Divider().background(Color.steelLight.opacity(0.3))
+                    ForEach(a.events.prefix(4)) { e in
+                        HStack(spacing: 8) {
+                            Text(e.label).font(.caption).foregroundColor(.healthText)
+                                .lineLimit(1).frame(width: 128, alignment: .leading)
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    Capsule().fill(Color.steel.opacity(0.15))
+                                    Capsule().fill(Color.steel)
+                                        .frame(width: max(4, geo.size.width * e.score))
+                                }
+                            }.frame(height: 7)
+                            Text(String(format: "%.0f%%", e.score * 100)).font(.caption2)
+                                .foregroundColor(.healthSub).monospacedDigit()
+                                .frame(width: 38, alignment: .trailing)
+                        }
+                    }
+                } else if a.stream == "up" {
+                    Text("Listening…").font(.caption).foregroundColor(.healthSub)
+                } else {
+                    Text("Mic stream offline").font(.caption).foregroundColor(.healthSub)
+                }
             }
             .ruCard()
-            .animation(.easeOut(duration: 0.2), value: viewModel.impactDetected)
-            .animation(.easeOut(duration: 0.2), value: viewModel.soundActive)
+            .animation(.easeOut(duration: 0.25), value: a.fused)
+        }
+    }
+
+    private func fusedTitle(_ f: String) -> String {
+        switch f {
+        case "conversation": return "Conversation"
+        case "tv_or_media", "media_playing": return "TV / media"
+        case "distress_present": return "Distress — someone present"
+        case "distress_sound": return "Distress sound"
+        case "alarm_sound": return "Alarm"
+        case "activity": return "Activity"
+        case "quiet": return "Quiet"
+        default: return "Listening"
+        }
+    }
+    private func fusedSubtitle(_ f: String, present: Bool?) -> String {
+        switch f {
+        case "conversation": return "Speech + someone in the room"
+        case "tv_or_media", "media_playing": return "Speech, but no one detected — likely a screen"
+        case "distress_present": return "Crying/shout with a person present — check in"
+        case "distress_sound": return "Distress sound detected"
+        case "alarm_sound": return "Alarm / glass / impact"
+        case "activity": return "Sound + presence"
+        case "quiet": return present == true ? "Someone here, quiet" : "Room quiet"
+        default: return "Analyzing audio…"
+        }
+    }
+    private func fusedColor(_ f: String) -> Color {
+        switch f {
+        case "distress_present", "distress_sound", "alarm_sound": return .red
+        case "conversation", "activity": return .steel
+        default: return .healthSub
+        }
+    }
+    private func fusedIcon(_ f: String) -> String {
+        switch f {
+        case "distress_present", "distress_sound": return "exclamationmark.bubble.fill"
+        case "alarm_sound": return "bell.fill"
+        case "conversation": return "bubble.left.and.bubble.right.fill"
+        case "tv_or_media", "media_playing": return "tv.fill"
+        case "activity": return "waveform"
+        default: return "waveform"
         }
     }
 
