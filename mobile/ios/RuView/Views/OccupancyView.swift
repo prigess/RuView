@@ -184,9 +184,11 @@ struct OccupancyView: View {
                     Image(systemName: fusedIcon(a.fused))
                         .font(.system(size: 30)).foregroundColor(fusedColor(a.fused))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(fusedTitle(a.fused))
+                        // The raw YAMNet class, verbatim (one of the 521).
+                        Text(a.events.first?.label ?? (a.stream == "up" ? "Listening…" : "Mic offline"))
                             .font(.title3).fontWeight(.bold).foregroundColor(fusedColor(a.fused))
-                        Text(fusedSubtitle(a.fused, present: a.radarPresent))
+                            .lineLimit(1).minimumScaleFactor(0.7)
+                        Text(audioSubtitle(a))
                             .font(.caption).foregroundColor(.healthSub)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -226,6 +228,17 @@ struct OccupancyView: View {
             .ruCard()
             .animation(.easeOut(duration: 0.25), value: a.fused)
         }
+    }
+
+    /// Subtitle = raw-class confidence + the radar presence context. Together
+    /// with the verbatim class headline this conveys the cross-modal insight
+    /// ("Speech · no one present" = a screen) without an invented label.
+    private func audioSubtitle(_ a: AudioReading) -> String {
+        let presence = a.radarPresent == true ? "someone present" : "no one present"
+        if let top = a.events.first {
+            return "\(Int(top.score * 100))% · \(presence)"
+        }
+        return a.stream == "up" ? "listening · \(presence)" : "mic stream offline"
     }
 
     private func fusedTitle(_ f: String) -> String {
