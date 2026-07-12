@@ -184,8 +184,11 @@ struct OccupancyView: View {
                     Image(systemName: fusedIcon(a.fused))
                         .font(.system(size: 30)).foregroundColor(fusedColor(a.fused))
                     VStack(alignment: .leading, spacing: 2) {
-                        // The raw YAMNet class, verbatim (one of the 521).
-                        Text(a.events.first?.label ?? (a.stream == "up" ? "Listening…" : "Mic offline"))
+                        // The raw YAMNet class, verbatim (one of the 521). When
+                        // nothing's above threshold it's genuinely quiet — the
+                        // mic is always on (that's the LIVE dot), so "Quiet" not
+                        // "Listening".
+                        Text(a.events.first?.label ?? (a.stream == "up" ? "Quiet" : "Mic offline"))
                             .font(.title3).fontWeight(.bold).foregroundColor(fusedColor(a.fused))
                             .lineLimit(1).minimumScaleFactor(0.7)
                         Text(audioSubtitle(a))
@@ -238,7 +241,7 @@ struct OccupancyView: View {
         if let top = a.events.first {
             return "\(Int(top.score * 100))% · \(presence)"
         }
-        return a.stream == "up" ? "listening · \(presence)" : "mic stream offline"
+        return a.stream == "up" ? "quiet · \(presence)" : "mic stream offline"
     }
 
     private func fusedTitle(_ f: String) -> String {

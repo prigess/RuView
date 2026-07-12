@@ -143,19 +143,33 @@ def emotion(events):
     if labels & JOY:      return "joy"
     return "neutral"
 
+_held_events = []
+_held_events_at = [0.0]
+EVENTS_HOLD = 2.5   # keep the last detected sound this long through quiet gaps
+
 def infer_loop():
     while True:
         up = (time.monotonic() - _last_packet_at[0]) < 2.0 if _last_packet_at[0] else False
         audio = infer() if up else None
         present = radar_present()
+        now = time.monotonic()
+        # Hold the last non-empty classification through brief pauses so the
+        # headline doesn't flicker Speech → (empty) → Speech during natural gaps.
+        ev = audio["events"] if audio else []
+        if ev:
+            _held_events[:] = ev
+            _held_events_at[0] = now
+        elif up and (now - _held_events_at[0]) < EVENTS_HOLD:
+            ev = list(_held_events)
+        held = {"events": ev, "active": audio["active"] if audio else False} if (audio or ev) else None
         _state.update({
             "ts": time.time(),
             "level_db": audio["level_db"] if audio else None,
             "active": audio["active"] if audio else False,
-            "events": audio["events"] if audio else [],
+            "events": ev,
             "radar_present": present,
-            "fused": fuse(audio, present),
-            "emotion": emotion(audio["events"]) if audio else "neutral",
+            "fused": fuse(held, present),
+            "emotion": emotion(ev),
             "stream": "up" if up else "down",
         })
         time.sleep(0.3)
