@@ -1,0 +1,1981 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1600, initial-scale=1" />
+<title>RuView · Sensor catalog for ESP32-S3</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  :root {
+    --bg:        #0E1521;
+    --surface:   #182438;
+    --surface-2: #1F2D44;
+    --line:      #2A3B58;
+    --steel:     #4682B4;
+    --steel-2:   #2C5282;
+    --steel-pale:#7AA0E2;
+    --steel-fog: #B9D3F0;
+    --ink:       #DCE6F5;
+    --ink-dim:   #93A8C6;
+    --accent:    #6E5FCC;
+    --ok:        #2BA66A;
+    --amber:     #FFD4A8;
+    --coral:     #E76F51;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink); min-height: 100vh;
+  }
+  header {
+    padding: 28px 48px 14px 48px;
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; justify-content: space-between;
+    flex-wrap: wrap; gap: 16px;
+  }
+  h1 { margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -0.4px; }
+  h1 .sub { color: var(--steel-pale); font-weight: 400; margin-left: 12px; font-size: 17px; }
+
+  nav { display: flex; gap: 6px; flex-wrap: wrap; }
+  nav button {
+    background: var(--surface); color: var(--ink-dim); border: 1px solid var(--line);
+    padding: 8px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;
+    font-family: inherit; letter-spacing: 0.4px; text-transform: uppercase;
+    transition: all 0.15s ease;
+  }
+  nav button:hover { color: var(--ink); border-color: var(--steel); }
+  nav button.active { background: var(--steel-2); color: #fff; border-color: var(--steel); }
+
+  main { padding: 24px 48px 48px 48px; max-width: 1700px; margin: 0 auto; }
+  .intro {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 22px; margin-bottom: 20px;
+    color: var(--ink-dim); font-size: 13px; line-height: 1.55;
+  }
+  .intro b { color: var(--steel-fog); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px; cursor: pointer; transition: all 0.15s ease;
+    position: relative; overflow: hidden;
+  }
+  .card:hover, .card.active {
+    background: var(--surface-2); border-color: var(--steel);
+    transform: translateY(-1px);
+  }
+  .card .name { font-size: 15px; font-weight: 600; color: var(--ink); margin-bottom: 4px; }
+  .card .sub  { font-size: 12px; color: var(--steel-pale); font-family: ui-monospace,"SF Mono",Menlo,monospace; }
+  .card .desc { font-size: 12.5px; color: var(--ink-dim); margin-top: 10px; line-height: 1.5; }
+  .card .badges { margin-top: 12px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 999px; font-size: 10.5px;
+    border: 1px solid var(--line); color: var(--ink-dim);
+    font-family: ui-monospace,"SF Mono",Menlo,monospace; letter-spacing: 0.4px;
+  }
+  .badge.iface  { color: var(--steel-pale); border-color: rgba(122,160,226,0.4); background: rgba(122,160,226,0.07); }
+  .badge.cost   { color: var(--amber);      border-color: rgba(255,212,168,0.4); background: rgba(255,212,168,0.06); }
+  .badge.ease-easy { color: var(--ok);    border-color: rgba(43,166,106,0.4); background: rgba(43,166,106,0.07); }
+  .badge.ease-med  { color: var(--amber); border-color: rgba(255,212,168,0.4); background: rgba(255,212,168,0.07); }
+  .badge.ease-hard { color: var(--coral); border-color: rgba(231,111,81,0.4);  background: rgba(231,111,81,0.07); }
+  /* Consent tier — central to the privacy story */
+  .badge.consent-default { color: var(--ok);     border-color: rgba(43,166,106,0.4); background: rgba(43,166,106,0.08); }
+  .badge.consent-optin   { color: var(--steel-pale); border-color: rgba(122,160,226,0.4); background: rgba(122,160,226,0.08); }
+  .badge.consent-explicit{ color: var(--coral);  border-color: rgba(231,111,81,0.4);  background: rgba(231,111,81,0.10); }
+
+  .group-title {
+    color: var(--steel-pale); font-size: 12px; letter-spacing: 1.4px;
+    text-transform: uppercase; font-family: ui-monospace,"SF Mono",Menlo,monospace;
+    margin: 24px 4px 10px 4px; padding-bottom: 6px; border-bottom: 1px solid var(--line);
+  }
+  .group-title .count { color: var(--ink-dim); margin-left: 8px; letter-spacing: 0.4px; }
+
+  .detail {
+    margin-top: 22px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: 22px 28px; min-height: 140px;
+  }
+  .detail h3 { margin: 0 0 6px 0; font-size: 18px; color: var(--steel-fog); }
+  .detail .meta { color: var(--ink-dim); font-size: 13px; margin-bottom: 14px; }
+  .detail table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .detail td { padding: 5px 0; vertical-align: top; }
+  .detail td:first-child { color: var(--steel-pale); width: 200px; }
+  .detail td:nth-child(2) { color: var(--ink); }
+  .detail .empty { color: var(--ink-dim); font-style: italic; }
+  .detail .section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .detail .section h4 {
+    margin: 0 0 8px 0; font-size: 12px; color: var(--steel-pale);
+    letter-spacing: 0.6px; text-transform: uppercase; font-weight: 600;
+  }
+  .detail pre.code {
+    margin: 6px 0 0 0; padding: 10px 12px; background: #0B121E;
+    border: 1px solid var(--line); border-radius: 6px;
+    color: var(--steel-fog); font-size: 12px;
+    font-family: ui-monospace,"SF Mono",Menlo,monospace;
+    overflow-x: auto; white-space: pre;
+  }
+  .scenario-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .scenario-tags .tag {
+    font-size: 11px; padding: 3px 9px; border-radius: 4px;
+    background: rgba(110,95,204,0.15); color: var(--accent);
+    border: 1px solid rgba(110,95,204,0.4);
+  }
+  footer { padding: 12px 48px 28px 48px; color: var(--ink-dim); font-size: 12px; text-align: right; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>RuView Sensor catalog<span class="sub">what plugs into an ESP32-S3 · how each helps elder-care</span></h1>
+  <nav id="cat-nav"></nav>
+</header>
+
+<main>
+  <div class="intro">
+    Everything below <b>plugs into an ESP32-S3</b> with minimal wiring (Qwiic / Stemma-QT / Grove, or 2-4 jumpers).
+    Each card carries a <b>consent tier</b>:
+    <span class="badge consent-default">default</span> always-on, no PII;
+    <span class="badge consent-optin">opt-in</span> caregiver toggle, anonymous signal;
+    <span class="badge consent-explicit">explicit biometric</span> per-person consent + revocable enrollment.
+    Plus <b>interface</b>, <b>cost</b>, and <b>ease</b>. The detail panel shows the RuView scenarios each unlocks and the honest caveats.
+    Hover any card for deep details, click to pin.
+  </div>
+
+  <style>
+    .status-wrap { margin: 6px 0 26px 0; }
+    .status-wrap h2 { font-size: 18px; color: var(--ink); margin: 0 0 4px 0; }
+    .status-wrap .status-sub { color: var(--ink-dim); font-size: 13px; margin-bottom: 16px; }
+    .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    @media (max-width: 1100px) { .status-grid { grid-template-columns: 1fr; } }
+    .status-panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+    .status-panel > .cap { padding: 12px 16px; font-weight: 600; font-size: 14px; letter-spacing: .3px;
+      border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
+    .status-panel.live > .cap  { color: var(--ok);    background: rgba(43,166,106,0.07); }
+    .status-panel.next > .cap  { color: var(--steel-pale); background: rgba(122,160,226,0.06); }
+    .status-table { width: 100%; border-collapse: collapse; font-size: 12.8px; }
+    .status-table th { text-align: left; color: var(--ink-dim); font-weight: 500; font-size: 11px;
+      text-transform: uppercase; letter-spacing: .5px; padding: 9px 16px; border-bottom: 1px solid var(--line); }
+    .status-table td { padding: 10px 16px; border-bottom: 1px solid var(--line); color: var(--ink-dim); vertical-align: top; line-height: 1.45; }
+    .status-table tr:last-child td { border-bottom: none; }
+    .status-table td.what { color: var(--ink); font-weight: 600; white-space: nowrap; }
+    .status-table td .via { color: var(--steel-pale); font-family: ui-monospace,"SF Mono",Menlo,monospace; font-size: 11.5px; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 10.5px; font-weight: 600; }
+    .pill.ok    { color: var(--ok);    background: rgba(43,166,106,0.10); border: 1px solid rgba(43,166,106,0.4); }
+    .pill.warn  { color: var(--amber); background: rgba(255,212,168,0.08); border: 1px solid rgba(255,212,168,0.4); }
+    .pill.s { color: var(--ok); } .pill.m { color: var(--amber); } .pill.l { color: var(--coral); }
+    .status-note { grid-column: 1 / -1; background: rgba(255,212,168,0.05); border: 1px solid rgba(255,212,168,0.3);
+      border-radius: 10px; padding: 12px 16px; font-size: 12.5px; color: var(--ink-dim); }
+    .status-note b { color: var(--amber); }
+  </style>
+
+  <div class="status-wrap">
+    <h2>What's implemented today — and what's next</h2>
+    <div class="status-sub">Live on the current portable rig (ESP32-S3 sensors → Orange Pi RK3588 → iOS app). Updated 2026-07-11.</div>
+    <div class="status-grid">
+
+      <div class="status-panel live">
+        <div class="cap">✅ Implemented &amp; running on real hardware</div>
+        <table class="status-table">
+          <thead><tr><th>Capability</th><th>How it works</th><th></th></tr></thead>
+          <tbody>
+            <tr><td class="what">Occupancy count<br>+ live X/Y tracking</td>
+                <td>Multi-target radar with de-split + hold stabilization (kills 1→2 near-field splits; rides out still-person dropouts). <span class="via">LD2450 · 24 GHz</span></td>
+                <td><span class="pill ok">Live</span></td></tr>
+            <tr><td class="what">Presence + distance<br>+ entry/exit</td>
+                <td>FMCW radar, configurable presence hold; the reliable "someone's here" source. <span class="via">LD2410C · 24 GHz</span></td>
+                <td><span class="pill ok">Live</span></td></tr>
+            <tr><td class="what">Raw room-audio<br>capture</td>
+                <td>INMP441 I²S → 16 kHz PCM → UDP to the Pi (dedicated ESP-IDF streamer firmware). <span class="via">INMP441 + ESP32-S3</span></td>
+                <td><span class="pill ok">Live</span></td></tr>
+            <tr><td class="what">Sound-event<br>classification</td>
+                <td>YAMNet (AudioSet, <b>521 classes</b>: Speech, Music, Crying, Laughter, Shout, Glass…) on the Pi. <span class="via">Orange Pi · tflite</span></td>
+                <td><span class="pill ok">Live</span></td></tr>
+            <tr><td class="what">Emotion<br>joy / distress / anger</td>
+                <td>Mapped straight from YAMNet vocalization classes — <b>no custom model</b> (Laughter→joy, Crying/Whimper→distress, Shout/Scream→anger).</td>
+                <td><span class="pill ok">Live</span></td></tr>
+            <tr><td class="what">Cross-modal<br>fusion</td>
+                <td>Audio ⨝ radar: "Speech + present = <i>conversation</i>", "Speech + no one = <i>TV/media</i>", "Crying + present = <i>distress</i>". <span class="via">ruview-audiod</span></td>
+                <td><span class="pill ok">Live</span></td></tr>
+            <tr><td class="what">Thin-client app</td>
+                <td>Sound ID card (verbatim class + confidence), Occupancy count, Node Health — consumes the Pi's REST only, no on-device ML. <span class="via">iOS · :3025 / sensor REST</span></td>
+                <td><span class="pill ok">Live</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="status-panel next">
+        <div class="cap">◆ Potential additions</div>
+        <table class="status-table">
+          <thead><tr><th>Capability</th><th>How</th><th>Effort</th></tr></thead>
+          <tbody>
+            <tr><td class="what">Speech emotion<br>from tone</td>
+                <td>"Worried/angry" tone in <i>calm</i> speech (prosody) — the one thing YAMNet can't do; needs a small speech-emotion (SER) model on the same audio stream.</td>
+                <td><span class="pill l">L</span></td></tr>
+            <tr><td class="what">Speaker ID<br>who is talking</td>
+                <td>Voice-embedding model + per-person enrollment, reusing the live audio pipeline.</td>
+                <td><span class="pill l">L</span></td></tr>
+            <tr><td class="what">YAMNet on the NPU</td>
+                <td>Convert to RKNN and run on the RK3588 NPU for headroom (frees the CPU).</td>
+                <td><span class="pill m">M</span></td></tr>
+            <tr><td class="what">Caregiver alerting</td>
+                <td>Push notification when fusion hits <span class="via">distress_present</span> / <span class="via">alarm_sound</span> / fall.</td>
+                <td><span class="pill s">S</span></td></tr>
+            <tr><td class="what">Fall detection</td>
+                <td>Dedicated MR60FDA1 fall radar, or radar motion-spike → still + audio "thud" fusion.</td>
+                <td><span class="pill m">M</span></td></tr>
+            <tr><td class="what">Server-side<br>radar ingestion</td>
+                <td>Ingest LD2450/LD2410 into the sensing-server so the Pi is the single source of truth (bridge code already staged).</td>
+                <td><span class="pill m">M</span></td></tr>
+            <tr><td class="what">Multi-person<br>separation</td>
+                <td>Second LD2450 at another angle (multistatic geometry) to resolve people the single radar merges.</td>
+                <td><span class="pill m">M</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="status-note">
+        <b>On hold — Vitals (heart rate / breathing):</b> the C6 + MR60BHA2 60 GHz radar was pulled from the demo mix — it fabricates a phantom heartbeat off near-field static clutter. It returns once placed with a clear ~1.5 m near field (it's the only sensor built to read a still, breathing person).
+      </div>
+
+    </div>
+  </div>
+
+  <div id="catalog"></div>
+
+  <div class="detail" id="detail">
+    <h3>Pick a sensor</h3>
+    <p class="empty">Hover or click any sensor card to see specs, wiring, the RuView use case, and how to wire it via ESPHome.</p>
+  </div>
+</main>
+
+<footer>RuView · steel-blue dark · D3 v7 · all sensors verified ESP32-S3 compatible · pricing approximate (Mouser/AliExpress)</footer>
+
+<script>
+/* ─────────────────────────────────────────────────────────────────
+ *  Sensor data — every entry is something we could realistically
+ *  drop into the next ESP32-S3 build with a Qwiic/Grove cable or
+ *  ≤4 jumper wires. RuView use case is *honest*, not aspirational.
+ * ───────────────────────────────────────────────────────────────── */
+const SCENARIOS = {
+  /* Generic care signals */
+  PRES:    'Presence / Occupancy',
+  COUNT:   'Person counting',
+  HRBR:    'Heart / Breath rate',
+  FALL:    'Fall detection',
+  IN_OUT:  'In/Out transitions',
+  SLEEP:   'Sleep / restlessness',
+  ENVIRO:  'Room comfort',
+  SAFETY:  'Safety / hazards',
+  NIGHT:   'Night-time monitoring',
+  ROUTINE: 'Daily routine',
+  /* Audience-specific */
+  BABY:    '👶 Baby care',
+  ELDER:   '👵 Elderly care',
+  FACILITY:'🏥 Facility care',
+  PREDICT: '📈 Health prediction',
+};
+
+const sensors = [
+
+/* ───────── PRESENCE / MOTION ───────── */
+{
+  group: 'Presence & motion (radar / IR / TOF)',
+  name: 'PIR — AM312 (or HC-SR501)', sub: 'passive infrared motion · 1 GPIO',
+  iface: 'GPIO', cost: '$1–3', ease: 'easy', consent: 'default',
+  desc: 'Pyroelectric sensor that triggers on warm-body motion. Fastest "no-motion" signal you can get — drops to LOW within 1–2 s of stillness.',
+  scenarios: ['PRES', 'NIGHT'],
+  detail: {
+    title: 'PIR — AM312 / HC-SR501',
+    meta: 'Pyroelectric motion sensor · 3 wires (VCC/GND/OUT) · digital HIGH on motion',
+    rows: [
+      ['Range',          'AM312: ~3-5 m · HC-SR501: 3-7 m · ±60° cone'],
+      ['Response time',  '~1 s on motion · 1-2 s drop to no-motion (vs 4-14 s for MR60BHA2!)'],
+      ['Cost',           '$1 (AM312) / $2 (HC-SR501)'],
+      ['Interface',      '1 GPIO input · 3.3 V tolerant (AM312) · or 5 V (HC-SR501) with level shifter'],
+      ['Power',          '~50 µA (AM312) · sub-mA always-on'],
+      ['Library',        'ESPHome: binary_sensor: platform: gpio · just one entry'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — fast "leaving" detection',
+        rows: [
+          ['Problem solved', 'Mass-fuses with MR60BHA2 to beat the radar\'s 4-14 s tracker hold: PIR no-motion for >5 s + radar still says Present = "verifying / leaving room"'],
+          ['Privacy',        'No imaging · no audio · just "warm thing moved" / "didn\'t move"'],
+          ['Best place',     'On the same enclosure as the C6 radar — aim same direction'],
+          ['Caveat',         'Can\'t tell who · pets trigger it · indoor sun beams trigger false positives at sunrise/sunset'],
+        ]
+      },
+      {
+        heading: 'ESPHome wiring',
+        code:
+`binary_sensor:
+  - platform: gpio
+    pin: GPIO4
+    name: "Room PIR"
+    device_class: motion
+    filters:
+      - delayed_off: 1s   # debounce the drop edge`
+      }
+    ]
+  }
+},
+{
+  group: 'Presence & motion (radar / IR / TOF)',
+  name: 'HLK-LD2410C', sub: '24 GHz mmWave · presence + distance · UART',
+  iface: 'UART', cost: '$4', ease: 'med', consent: 'default',
+  desc: 'Hi-Link 24 GHz FMCW radar. Detects presence + distance + motion vs static. Tunable sensitivity per range gate via UART config tool. Cheaper sibling of the LD2410B.',
+  scenarios: ['PRES', 'IN_OUT'],
+  detail: {
+    title: 'HLK-LD2410C — 24 GHz presence radar',
+    meta: 'Hi-Link 24 GHz FMCW radar · 5 V power · 256000-baud UART · ESPHome native support',
+    rows: [
+      ['Range',          'Up to 6 m presence · 5 m motion · ±60° cone'],
+      ['Modes',          'Reports separately: "moving target", "still target", "any presence"'],
+      ['Configurable',   'Per-gate (0.75 m bins) sensitivity · hold time after target loss (1-300 s!) — tunable from UART'],
+      ['Hold time',      'KEY ADVANTAGE: presence hold-after-target-lost is configurable (default 5 s, tunable 1-300 s) — fixes the MR60BHA2 weakness'],
+      ['Interface',      'TX/RX UART @ 256000 8N1 · 2 wires + power · no SPI/I²C complexity'],
+      ['Library',        'ESPHome: ld2410 component (mature, well-supported)'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — the radar we WISH the MR60BHA2 was',
+        rows: [
+          ['Problem solved', 'Tunable hold-time: set to 2-3 s and the "Empty" transition is 2-3 s, not 4-14 s'],
+          ['No vitals',      'Cannot do HR/BR — only presence + distance. Best paired with MR60BHA2 (vitals when present)'],
+          ['Connector',      'Standard 4-pin 1.25 mm JST · we have the LD2410B/C boards but failed to source the cables in prior runs'],
+          ['Status today',   'Worth retrying with a proper cable + Qwiic-to-JST adapter · the tunable hold time alone justifies it'],
+        ]
+      },
+      {
+        heading: 'ESPHome wiring',
+        code:
+`uart:
+  tx_pin: GPIO17
+  rx_pin: GPIO16
+  baud_rate: 256000
+
+ld2410:
+  id: ld2410_radar
+
+binary_sensor:
+  - platform: ld2410
+    has_target:
+      name: "LD2410 Presence"
+    has_moving_target:
+      name: "Moving target"
+    has_still_target:
+      name: "Still target"
+
+sensor:
+  - platform: ld2410
+    detection_distance:
+      name: "Detection distance"`
+      }
+    ]
+  }
+},
+{
+  group: 'Presence & motion (radar / IR / TOF)',
+  name: 'HLK-LD2450', sub: '24 GHz · multi-target X/Y · ★ IMPLEMENTED (count/tracking)',
+  iface: 'UART', cost: '$8', ease: 'med', consent: 'default',
+  desc: 'IMPLEMENTED & LIVE — the occupancy count + live X/Y tracking source. Hi-Link 24 GHz radar tracking up to 3 targets with position/speed, on an ESP32-S3 (ESPHome). The app applies de-split + hold stabilization so one person reads a steady 1. Verified tracking a person cleanly across ~0.2–2.2 m.',
+  scenarios: ['PRES', 'COUNT', 'IN_OUT'],
+  detail: {
+    title: 'HLK-LD2450 — 24 GHz multi-target tracker (live)',
+    meta: 'Hi-Link 24 GHz FMCW · up to 3 targets · X/Y/speed each · UART 256000 · ESPHome ld2450',
+    rows: [
+      ['Status',         'LIVE — drives the Occupancy count + Live Tracking plot in the app (direct-poll REST)'],
+      ['Range (rated)',  'Up to 6 m · multi-target X/Y in mm'],
+      ['Wiring (verified)', 'radar TX→GPIO12, RX→GPIO11, 256000 8N1 · VCC needs real 5V (YD-clone: bridge the IN-OUT jumper)'],
+      ['Count stabilization', 'App-side: 6 m range-gate → de-split (targets <0.7 m merged = one person the radar split) → 5 s hold through still-person dropouts'],
+      ['Library',        'ESPHome: ld2450 component · multi_target_tracking = ON'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — unlocks counting + zone-aware care',
+        rows: [
+          ['Problem solved', 'Real person count (1 vs 2) + X/Y position — the only sensor in the kit that can actually count people'],
+          ['No vitals',      'No HR/BR — presence/count only'],
+          ['Best mounted',   'Facing the monitored zone at torso height; radial motion (toward/away) detects best'],
+        ]
+      },
+      {
+        heading: '⚠ Field notes — hard-won (2026-07-11)',
+        rows: [
+          ['ANTENNA IS FRAGILE', 'The u.FL/IPEX antenna connector backs off with any bump. Marginally seated → range collapses to <1.5 m (detects close, MISSES a 2 m person) with NO 7 m ghost. FULLY off → a persistent 7 m ghost target instead.'],
+          ['If range drops',   'RE-SEAT THE ANTENNA FIRST (press until it clicks) before chasing config/firmware. Restart does NOT fix it. Re-seating instantly restored 2.15 m+ range (13/14 detection).'],
+          ['Still-person limit', 'mmWave is motion-based — it intermittently drops a motionless person (raw count flickers 1,0,1,0). The 5 s app-side hold rides this out; prolonged total stillness still needs the LD2410 still-mode or the C6 breathing channel.'],
+          ['Near-field split',  'A close, moving person can split into 2 tracks (torso+limb/multipath) → the <0.7 m de-split merges them back to 1.'],
+          ['Antenna-less ghost','Without the antenna it hallucinates a persistent still target at ~7 m (beyond the 6 m rated range) — the app range-gates it out.'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Presence & motion (radar / IR / TOF)',
+  name: 'Seeed MR60FDA2', sub: '60 GHz · FALL DETECTION · UART',
+  iface: 'UART', cost: '$25', ease: 'easy', consent: 'default',
+  desc: 'Seeed\'s 60 GHz fall-detection radar — same form factor and bus protocol as MR60BHA2. Reports "fall detected" event with confidence. ESPHome supported.',
+  scenarios: ['FALL', 'PRES'],
+  detail: {
+    title: 'Seeed MR60FDA2 — fall-detection radar',
+    meta: '60 GHz FMCW · purpose-built for FALL events · UART · ESPHome seeed_mr60fda2 component',
+    rows: [
+      ['Detects',          'Fall events (sudden drop in height + stillness pattern) · presence · target count'],
+      ['Tunables',         'fall_sensitivity · height_threshold (room ceiling height) — unlike BHA2, configurable!'],
+      ['Range',            '4 m × 60° cone · best mounted high on a wall'],
+      ['Mounting',         'Wall-mount 1.8-2.5 m high, tilted slightly downward'],
+      ['Combo with BHA2',  'Use BOTH for full coverage: BHA2 for vitals + presence, FDA2 for falls — same ESPHome host'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — closes the fall-detection scenario',
+        rows: [
+          ['Problem solved', 'Falls — one of the 7 key elder-care scenarios you listed'],
+          ['Configurable!',  'Unlike BHA2, this component DOES expose tunables (sensitivity, height) — different chip firmware'],
+          ['Output topic',   'ruview-fda2/binary_sensor/fall_detected/state · easy to wire into the alert pipeline'],
+        ]
+      },
+      {
+        heading: 'ESPHome wiring',
+        code:
+`uart:
+  tx_pin: GPIO17
+  rx_pin: GPIO16
+  baud_rate: 115200
+
+seeed_mr60fda2:
+  id: fda2
+
+binary_sensor:
+  - platform: seeed_mr60fda2
+    fall_detected:
+      name: "Fall detected"
+    has_target:
+      name: "Person Present"
+
+sensor:
+  - platform: seeed_mr60fda2
+    num_targets:
+      name: "Target Count"
+    fall_sensitivity:
+      name: "Fall sensitivity"
+    height_threshold:
+      name: "Ceiling height"`
+      }
+    ]
+  }
+},
+{
+  group: 'Presence & motion (radar / IR / TOF)',
+  name: 'VL53L1X', sub: 'laser TOF · ≤4 m precise · Qwiic',
+  iface: 'I²C', cost: '$8', ease: 'easy', consent: 'default',
+  desc: 'ST time-of-flight laser ranger. 25×25° narrow beam; perfect for a door beam or a single-point "is the chair occupied?" sensor.',
+  scenarios: ['IN_OUT', 'PRES'],
+  detail: {
+    title: 'VL53L1X — laser time-of-flight ranger',
+    meta: 'ST VL53L1X · ≤4 m laser TOF · I²C (Qwiic plug) · narrow 27° FoV',
+    rows: [
+      ['Range',         'Up to 4 m · sub-cm accuracy · 50 Hz update rate'],
+      ['Beam',          'Narrow (27°) — best for trip-wire / doorway / chair use'],
+      ['Power',         'Sub-mA · safe for always-on'],
+      ['Eye safety',    'Class 1 laser · safe by design'],
+      ['Library',       'ESPHome: vl53l0x or vl53l1x · drop-in I²C'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — door trip-wire + chair occupancy',
+        rows: [
+          ['Doorway count', 'Two VL53L1X at opposite ends of a doorway · order of trip = direction (in vs out)'],
+          ['Chair occupied','Mount on a wall facing the recliner · distance drops when occupied · binary-ize at threshold'],
+          ['Bed occupancy', 'Same trick on the bedroom wall · combine with PIR for sleep state'],
+        ]
+      }
+    ]
+  }
+},
+
+/* ───────── VITALS (radar-supplemental + skin contact, opt-in) ───────── */
+{
+  group: 'Vitals (non-contact preferred; contact opt-in)',
+  name: 'MAX30102', sub: 'PPG + SpO₂ · finger contact · Qwiic',
+  iface: 'I²C', cost: '$5', ease: 'easy', consent: 'optin',
+  desc: 'Pulse oximetry + heart rate via reflective PPG. Requires finger or wrist contact — opt-in spot-check, not continuous.',
+  scenarios: ['HRBR'],
+  detail: {
+    title: 'MAX30102 — PPG / SpO₂ sensor',
+    meta: 'Reflective pulse oximetry + heart rate · I²C · contact sensor (finger pad)',
+    rows: [
+      ['Outputs',     'HR (bpm) · SpO₂ (%) · raw IR/red waveforms'],
+      ['Mode',        'Spot-check (touch a pad) — NOT a passive sensor'],
+      ['Power',       '~1 mA active'],
+      ['Library',     'ESPHome external_component · Adafruit_MAX1704X port'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — opt-in cross-check for the radar HR',
+        rows: [
+          ['Problem solved', 'Validates the radar\'s HR reading on demand · "tap to confirm"'],
+          ['Not always-on',  'Requires contact · only useful for opt-in self-checks, not background monitoring'],
+          ['SpO₂',           'Bonus: SpO₂ is genuinely useful in respiratory illness · radar can\'t do it'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Vitals (non-contact preferred; contact opt-in)',
+  name: 'MLX90614', sub: 'IR skin temp · non-contact · Qwiic',
+  iface: 'I²C', cost: '$8', ease: 'easy', consent: 'optin',
+  desc: 'Non-contact IR thermometer (forehead / wrist). Pointed at a known body part it gives skin temp. Pair with radar to detect fever from afar.',
+  scenarios: ['HRBR', 'SAFETY'],
+  detail: {
+    title: 'MLX90614 — infrared skin temperature',
+    meta: 'Melexis MLX90614 · IR thermometer · I²C · -40 to +125 °C ambient, -70 to +380 °C target',
+    rows: [
+      ['Accuracy',  '±0.5 °C in 36-38 °C range (fever-relevant)'],
+      ['FoV',       'Narrow (~10°) · point at forehead/wrist at ≤30 cm'],
+      ['Library',   'ESPHome: mlx90614'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — passive fever screen',
+        rows: [
+          ['Use',           'Mount on a doorframe at head height · capture forehead temp as the person enters'],
+          ['Caveat',        'Distance + angle sensitive · best in a tight chokepoint like a bathroom door'],
+        ]
+      }
+    ]
+  }
+},
+
+/* ───────── ENVIRONMENT ───────── */
+{
+  group: 'Environment (correlates with comfort & wellness)',
+  name: 'SHT4x (SHT40/41/45)', sub: 'temp + humidity · Qwiic',
+  iface: 'I²C', cost: '$5', ease: 'easy', consent: 'default',
+  desc: 'Sensirion SHT4x family. Lab-grade temp + humidity in a tiny package. Drop-in for room comfort tracking.',
+  scenarios: ['ENVIRO', 'SLEEP'],
+  detail: {
+    title: 'SHT4x — temperature + humidity',
+    meta: 'Sensirion SHT40/41/45 · ±0.2 °C, ±1.8 %RH · I²C · Qwiic friendly',
+    rows: [
+      ['Outputs',  'Temperature (°C) · Relative humidity (%)'],
+      ['Library',  'ESPHome: sht4x'],
+      ['Power',    'Sub-mA · always-on safe'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — room comfort + sleep environment',
+        rows: [
+          ['Problem solved', 'Bedrooms outside 18-22 °C or below 40 %RH degrade sleep quality · alertable'],
+          ['Care pattern',   '"Bedroom was 28 °C all night" → suggest checking thermostat / window'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Environment (correlates with comfort & wellness)',
+  name: 'SCD41 (or SCD40)', sub: 'true CO₂ · presence inference · Qwiic',
+  iface: 'I²C', cost: '$30', ease: 'easy',
+  desc: 'Sensirion photoacoustic CO₂. Real CO₂ (not eCO₂ guess). Rising CO₂ = person breathing in the room — works even when radar misses someone behind a couch.',
+  scenarios: ['ENVIRO', 'PRES', 'SLEEP'],
+  detail: {
+    title: 'SCD41 — true CO₂ (photoacoustic)',
+    meta: 'Sensirion SCD41 · NDIR-quality CO₂ in a tiny package · I²C · 5-min warmup',
+    rows: [
+      ['Range',     '400-5000 ppm CO₂ · ±50 ppm + 5 % accuracy'],
+      ['Bonus',     'Built-in temp + humidity too · one chip covers SHT4x role'],
+      ['Library',   'ESPHome: scd4x'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — radar-blind-spot presence backup',
+        rows: [
+          ['Problem solved', 'CO₂ rises ~50-150 ppm per person within 10-15 min · catches "person sitting still behind furniture" the radar lost'],
+          ['Sleep quality',  'Bedroom CO₂ over 1000 ppm degrades sleep · actionable'],
+          ['Caveat',         '5-min response time · NOT a fast presence sensor · slow confirmer'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Environment (correlates with comfort & wellness)',
+  name: 'BH1750', sub: 'ambient light (lux) · Qwiic',
+  iface: 'I²C', cost: '$2', ease: 'easy',
+  desc: 'Calibrated lux sensor. Day/night detection, light-routine tracking, and bedroom-light-on-during-sleep alerts.',
+  scenarios: ['ROUTINE', 'NIGHT', 'SLEEP'],
+  detail: {
+    title: 'BH1750 — ambient light (lux)',
+    meta: 'Rohm BH1750 · 1-65535 lux · I²C',
+    rows: [
+      ['Outputs',   'Illuminance in lux'],
+      ['Library',   'ESPHome: bh1750'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — day/night context + routine baseline',
+        rows: [
+          ['Night detection', '"Person up and walking AND room is dark (<5 lux)" → possible bathroom trip or disorientation'],
+          ['Routine',         'Hours of daylight exposure correlate with cognitive health · trend over weeks'],
+        ]
+      }
+    ]
+  }
+},
+
+/* ───────── SAFETY ───────── */
+{
+  group: 'Safety (hazards & alerts)',
+  name: 'Reed switch + magnet', sub: 'door/window open · 1 GPIO',
+  iface: 'GPIO', cost: '$1', ease: 'easy',
+  desc: 'Magnetic reed switch — closes when a magnet is nearby. 2 wires to a GPIO with pullup. Standard "is the door closed?" sensor.',
+  scenarios: ['IN_OUT', 'SAFETY', 'ROUTINE'],
+  detail: {
+    title: 'Reed switch — magnetic door / window sensor',
+    meta: 'Generic magnetic reed switch · 2 wires · pulled-up GPIO',
+    rows: [
+      ['Wiring',     '1 GPIO + GND · internal pullup, switch to GND when magnet is far'],
+      ['Mount',      'Adhesive pads · one half on the frame, one on the door'],
+      ['Library',    'ESPHome: binary_sensor: gpio'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — front door & fridge & medicine cabinet',
+        rows: [
+          ['Front door',     'Combined with presence → "she went out at 9:23 AM" timeline'],
+          ['Fridge',         '"Fridge not opened today" is a meaningful eat-pattern signal'],
+          ['Medicine cabinet','"Did she take her morning meds?" — silent reminder logic'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Safety (hazards & alerts)',
+  name: 'MQ-7 (CO)', sub: 'carbon monoxide · ADC',
+  iface: 'ADC', cost: '$3', ease: 'med',
+  desc: 'CO gas sensor. Slow but cheap. Pair with a real UL-listed CO alarm — this is a supplemental telemetry, NOT a primary life-safety device.',
+  scenarios: ['SAFETY'],
+  detail: {
+    title: 'MQ-7 — carbon monoxide (analog)',
+    meta: 'Tin-oxide CO sensor · ADC input · warmup ~24 h on first power · NOT a UL-listed alarm',
+    rows: [
+      ['Output',    'Analog (0-3.3 V) · calibration drift over time'],
+      ['Caveat',    '⚠ NOT a primary life-safety device. Pair with a UL-listed CO alarm. This adds telemetry, not safety.'],
+      ['Library',   'ESPHome: adc + filters'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — supplemental hazard telemetry',
+        rows: [
+          ['Problem solved', 'Persistent low-level CO trend (e.g. failing furnace) shows up before alarm-level — early intervention'],
+          ['Honest limit',   'Not for primary alerting · the user STILL needs a real UL-listed CO alarm in the hallway'],
+        ]
+      }
+    ]
+  }
+},
+
+/* ───────── ACTIVITY ───────── */
+{
+  group: 'Activity (wearable-free movement & weight)',
+  name: 'HX711 + load cell', sub: 'bed/chair weight · 2-pin SPI',
+  iface: 'SPI-like', cost: '$5', ease: 'med',
+  desc: '24-bit ADC for load cells. Put 4 cells under the bed legs → continuous "is the bed loaded?" + restlessness from weight micro-shifts.',
+  scenarios: ['SLEEP', 'PRES', 'FALL'],
+  detail: {
+    title: 'HX711 + load cells under the bed',
+    meta: 'Avia Semiconductor HX711 · 24-bit ADC · DT+SCK on 2 GPIO · cheap load cells from any pad scale',
+    rows: [
+      ['Wiring',     'HX711 board · 4 load cells in Wheatstone bridge (one under each bed leg)'],
+      ['Outputs',    'Total weight on bed · changes over time → restlessness · sudden drop → fall out of bed'],
+      ['Library',    'ESPHome: hx711'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — sleep restlessness + fall-from-bed',
+        rows: [
+          ['Problem solved', 'Weight micro-shifts give restlessness even when radar HR/BR is too far away (>1.5 m)'],
+          ['Fall-from-bed',  'Weight goes from 70 kg → 0 in <2 s WHILE radar still says room is occupied = fall'],
+          ['Caveat',         'Install effort: lift bed corners onto load cells once · then it just works'],
+        ]
+      }
+    ]
+  }
+},
+
+/* ───────── AUDIO (privacy-conscious — level-only, never raw audio off-device) ───────── */
+{
+  group: 'Audio (on-LAN inference — YAMNet on the Pi · nothing recorded/stored)',
+  name: 'INMP441 — I²S MEMS mic', sub: 'digital mic · streams to Pi · ★ IMPLEMENTED',
+  iface: 'I²S', cost: '$5', ease: 'med',
+  desc: 'IMPLEMENTED & LIVE. Digital MEMS mic over I²S on an ESP32-S3 running a dedicated ESP-IDF streamer: raw 16 kHz PCM → UDP to the Orange Pi, where YAMNet (521 AudioSet classes) classifies sound events and the result is fused with the radar telemetry. Audio is analysed in real time on the local Pi and never recorded, stored, or sent off the LAN.',
+  scenarios: ['SAFETY', 'NIGHT', 'FALL'],
+  detail: {
+    title: 'INMP441 — I²S MEMS microphone → Pi YAMNet pipeline (live)',
+    meta: 'Knowles INMP441 · 24-bit I²S · ESP32-S3 ESP-IDF streamer → Orange Pi RK3588 (YAMNet, tflite) → iOS app (REST)',
+    rows: [
+      ['Pipeline',          'INMP441 → ESP32-S3 (I²S capture) → 16 kHz PCM16 over UDP:5006 → Pi ruview-audiod → YAMNet → radar fusion → REST :3025 → app'],
+      ['On the wire',       'Raw PCM streams to the LOCAL Pi only (LAN, ~256 kbit/s). Not persisted, not recorded, never leaves the LAN, no cloud.'],
+      ['Inference',         'YAMNet on the Pi: 521 AudioSet classes (Speech, Music, Crying/sobbing, Laughter, Shout, Glass…), top-k above 0.20, held 2.5 s through gaps'],
+      ['Emotion',           'joy / distress / anger mapped directly from YAMNet vocalization classes — NO custom model needed for overt vocalizations'],
+      ['Fusion',            'Cross-modal with the radar: Speech+present = "conversation" · Speech+no-one = "TV/media" · Crying+present = "distress"'],
+      ['Wiring (verified)', 'SCK→GPIO15 (BCLK) · WS→GPIO16 · SD→GPIO4 · VDD→3V3 · GND · L/R→GND (left channel). Go by silkscreen GPIO, not pin position.'],
+      ['Firmware',          'firmware/esp32-audio-streamer (ESP-IDF v5.x). Replaced the earlier ESPHome loudness build; first flash must be USB.'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — real-time sound intelligence (Merlin-style), fused with presence',
+        rows: [
+          ['Verbatim class',   'App "Sound ID" card shows the raw YAMNet class (e.g. "Speech", "Crying, sobbing") + confidence, plus the radar-fused meaning'],
+          ['Distress/alarm',   'Crying/whimper/scream → distress · glass/alarm/thud → alarm event — the graduated-response triggers'],
+          ['Cross-modal value','The SAME sound means different things given presence: speech with no one present = a screen; with a person = a real conversation'],
+          ['Privacy framing',  'Audio is processed live on the on-prem Pi and discarded — never recorded or stored, never sent to the cloud. Surface this in the UI.'],
+        ]
+      },
+      {
+        heading: 'Next on this same pipeline (potential)',
+        rows: [
+          ['Speech emotion (tone)', 'Worried/angry tone in CALM speech (prosody) — the one thing YAMNet can\'t do; add a small SER model on the stream'],
+          ['Speaker ID',           'Who is talking — a voice-embedding model + per-person enrollment, reusing the live audio stream'],
+          ['YAMNet on NPU',        'Convert to RKNN and run on the RK3588 NPU for headroom'],
+        ]
+      },
+      {
+        heading: 'ESP32-S3 streamer (ESP-IDF, live config)',
+        code:
+`// firmware/esp32-audio-streamer/main/audio_streamer_main.c
+#define I2S_BCLK  GPIO_NUM_15   // SCK
+#define I2S_WS    GPIO_NUM_16   // WS
+#define I2S_DIN   GPIO_NUM_4    // SD
+#define SAMPLE_RATE 16000       // YAMNet-native
+#define PI_IP  "192.168.7.205"  // Orange Pi ruview-audiod
+#define PI_UDP_PORT 5006
+// INMP441 24-bit left-justified → >> GAIN_SHIFT → int16 PCM → UDP frames (20 ms)`
+      }
+    ]
+  }
+},
+{
+  group: 'Audio (privacy-conscious — never transmits raw audio)',
+  name: 'SPH0645LM4H', sub: 'I²S MEMS mic (Adafruit Qwiic-friendly)',
+  iface: 'I²S', cost: '$7', ease: 'easy',
+  desc: 'Knowles SPH0645 on Adafruit\'s breakout — same I²S story as INMP441 but with sane pinout and headers pre-soldered. Easier to wire than the bare INMP441.',
+  scenarios: ['SAFETY', 'NIGHT'],
+  detail: {
+    title: 'SPH0645LM4H — I²S MEMS (easier hookup)',
+    meta: 'Same idea as INMP441; Adafruit breakout (#3421) is the friction-free variant — same privacy guarantees',
+    rows: [
+      ['Outputs',  'Same as INMP441: dB level + classifier labels only'],
+      ['Library',  'ESPHome: i2s_audio'],
+      ['Difference','Pre-headered breakout — solves the prior wiring failure'],
+    ]
+  }
+},
+
+/* ───────── VISION (privacy-aware — prefer thermal / on-device ML) ───────── */
+{
+  group: 'Vision (privacy-aware — thermal first, RGB only if opt-in)',
+  name: 'AMG8833 — 8×8 thermal grid', sub: 'infrared array · Qwiic',
+  iface: 'I²C', cost: '$30', ease: 'easy',
+  desc: 'Panasonic AMG8833 — 64-pixel thermal "camera". Shows body silhouettes WITHOUT any identifiable detail. Perfect privacy-preserving stand-in for a camera.',
+  scenarios: ['PRES', 'FALL', 'COUNT'],
+  detail: {
+    title: 'AMG8833 — 8×8 thermal IR array',
+    meta: 'Panasonic Grid-EYE · 8×8 = 64 pixels of body-temp data · I²C · 10 Hz · Qwiic',
+    rows: [
+      ['Resolution',  '8×8 pixels — enough to see a body shape, not enough to identify a person'],
+      ['Range',       'Up to 5 m'],
+      ['Frame rate',  '10 Hz'],
+      ['Privacy',     'Often called "privacy-preserving vision" — no identifiable features visible at this resolution'],
+      ['Library',     'ESPHome: amg88xx (or external_component)'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — falls, posture, multi-person count — WITHOUT a real camera',
+        rows: [
+          ['Fall detection', 'Person silhouette transitions from vertical to horizontal in <2 s · cross-check with radar'],
+          ['Posture',        'Standing / sitting / lying — useful with bed-restraint patients'],
+          ['Person count',   'Distinct blobs in the frame → 1 vs 2 people · still privacy-safe'],
+          ['Trust story',    'Shows family: "this is what Nova actually sees" — 64 colored squares · obviously not surveillance'],
+          ['Caveat',         'Hot lamps, sunlit windows, and pets can confuse it · combine with radar for robustness'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Vision (privacy-aware — thermal first, RGB only if opt-in)',
+  name: 'MLX90640 — 32×24 thermal', sub: 'higher-res IR array · Qwiic',
+  iface: 'I²C', cost: '$50', ease: 'easy',
+  desc: 'Melexis MLX90640 — same idea as AMG8833 but 12× more pixels (768 total). Body posture clearly visible, still not face-recognizable.',
+  scenarios: ['FALL', 'SLEEP', 'PRES'],
+  detail: {
+    title: 'MLX90640 — 32×24 IR thermal array',
+    meta: 'Melexis MLX90640 · 768 pixels · I²C @ 8 Hz · Qwiic compatible',
+    rows: [
+      ['Resolution',  '32×24 = 768 pixels — body shape + posture clearly visible, no face detail'],
+      ['Range',       'Up to 7 m · 55° × 35° FoV'],
+      ['Frame rate',  'Up to 64 Hz at low-res, ~8 Hz at full res'],
+      ['Library',     'ESPHome: mlx90640 external_component · plenty of Arduino libs'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — bed-thermal-print + sleep-posture',
+        rows: [
+          ['Sleep posture',   'See whether mom is supine, lateral, or fetal — clinical-grade sleep signal · still no identifiable image'],
+          ['Bed-occupancy',   'Thermal print on the bed even after the person leaves (residual heat) shows they were just there'],
+          ['Caregiver demo',  'Pixel-art body silhouette in the iOS app — "this is the WHOLE picture we have" sells the privacy story'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Vision (privacy-aware — thermal first, RGB only if opt-in)',
+  name: 'ESP32-S3-EYE or OV2640', sub: '⚠ RGB camera · breaks no-camera promise',
+  iface: 'parallel/SPI', cost: '$15-40', ease: 'med',
+  desc: '⚠ Real RGB camera. Breaks the "no camera" promise. Only use with on-device person-detection (TinyML) that NEVER transmits frames — emits labeled events only. Even then: opt-in, off by default, clear LED indicator when active.',
+  scenarios: ['PRES', 'FALL', 'IN_OUT'],
+  detail: {
+    title: 'ESP32-S3-EYE / OV2640 — REAL camera (use with caution)',
+    meta: 'Espressif ESP32-S3-EYE dev board (or standalone OV2640) · 2 MP RGB · TinyML person detection on-device',
+    rows: [
+      ['Resolution',   'VGA - 2 MP'],
+      ['Privacy line', '⚠ Real images. Default: OFF. When ON: clear hardware LED indicator. All inference local · never store, never upload.'],
+      ['On-device ML', 'esp-dl / esp-tflite-micro can run a person-detector at ~1-5 Hz on S3 with no frames leaving the device'],
+      ['Library',      'esp32_camera ESPHome component'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — last-resort when radar + thermal aren\'t enough',
+        rows: [
+          ['Use cases',       'Front-door peek-in for delivery confirmation · stove-on visual confirmation when ambiguous'],
+          ['Privacy contract','Camera LED is wired in hardware to the camera enable line — caregiver can SEE it is on'],
+          ['Honest warning',  'Adding a camera changes the product trust story. Not recommended for the elder-care narrative unless absolutely necessary.'],
+        ]
+      }
+    ]
+  }
+},
+
+/* ───────── INERTIAL (for the hub device or an optional wearable) ───────── */
+{
+  group: 'Inertial (for the C6/S3 itself or an optional wearable pendant)',
+  name: 'LSM6DSO / MPU6050', sub: '6-axis IMU · Qwiic',
+  iface: 'I²C', cost: '$3-10', ease: 'easy',
+  desc: '6-axis accel + gyro. On the C6 enclosure: detects whether someone moved/dropped the sensor. As a separate wearable pendant: solid wearable fall detection — but wearables conflict with the no-wearable design unless you offer them as opt-in.',
+  scenarios: ['SAFETY', 'FALL'],
+  detail: {
+    title: 'LSM6DSO / MPU6050 — 6-axis IMU',
+    meta: 'Accelerometer + gyroscope · I²C · Qwiic friendly · 3.3 V',
+    rows: [
+      ['Outputs',  '3-axis accel (±2/4/8/16 g) · 3-axis gyro (±245/500/2000 dps)'],
+      ['Library',  'ESPHome: lsm6dso / mpu6050'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — two distinct uses',
+        rows: [
+          ['On the hub',     'Detect "the C6 got knocked over" or "the Pi got moved" — caregiver alert + auto-recalibrate'],
+          ['Optional pendant','BLE-LE button + IMU = panic button + wearable fall detect. Opt-in only — RuView default is no-wearable.'],
+        ]
+      }
+    ]
+  }
+},
+
+/* ───────── COMPOSITE SCREENING SYSTEMS (multi-sensor fusion) ───────── */
+{
+  group: 'Composite systems (multi-sensor screening)',
+  name: 'Sleep Apnea Screen', sub: 'multi-radar + thermal + audio · NO body contact',
+  iface: 'fusion', cost: '$60–180', ease: 'med', consent: 'optin',
+  desc: 'A fully no-contact apnea SCREENING bundle (not a diagnostic device). Combines bedside / ceiling radar + IR thermal + opt-in snore audio + bed load cells to compute a nightly AHI proxy.',
+  scenarios: ['SLEEP', 'HRBR', 'PREDICT', 'ELDER', 'BABY', 'FACILITY'],
+  detail: {
+    title: 'Sleep Apnea Screen — composite, no-contact, all-angles',
+    meta: 'Multi-sensor fusion on the Pi · screening tool only · explicitly NOT a diagnostic device · opt-in audio',
+    rows: [
+      ['What it measures',  'Apnea-Hypopnea Index (AHI) proxy = breathing events ≥10 s per hour of sleep'],
+      ['What it does NOT',  'Diagnose. Replace a clinical sleep study. Titrate CPAP. Set medication.'],
+      ['Regulatory',        'Wellness telemetry today · FDA pathway possible later but not assumed'],
+      ['Output',            'Per-night JSON: AHI proxy · events count · snore minutes · supine minutes · 30-day baseline drift'],
+      ['Outcome',           'If AHI proxy > 5: nudge caregiver to talk to a clinician about a real sleep study'],
+      ['Audience',          'Elder (most relevant), baby (pediatric apnea screen), facility (multi-bed at scale)'],
+    ],
+    sections: [
+      {
+        heading: 'The five signatures of an apnea event (and which sensor catches each)',
+        rows: [
+          ['Breath drop ≥10 s', 'MR60BHA2 BR → 0  ·  OR  MLX90640 thermal-chest oscillation → flat'],
+          ['Periodic Cheyne–Stokes', 'High-rate radar phase data (Pi-side spectral analysis)'],
+          ['Micro-arousal HR spike', 'MR60BHA2 HR jump 10–20 bpm at event end'],
+          ['Restlessness at arousal', 'HX711 load cells under bed legs OR thermal silhouette motion'],
+          ['Snore (pre-event)',  'INMP441 + on-device snore classifier (opt-in audio · level + label only)'],
+        ]
+      },
+      {
+        heading: 'Three "all-angles" hardware topologies — pick by bedroom',
+        rows: [
+          ['A · Ceiling thermal',   '1× MLX90640 above bed (looks down) + 1× MR60BHA2 on wall for HR · cleanest install · ~$80'],
+          ['B · Two-radar bedside', '2× MR60BHA2 on opposite nightstands · fuse highest-confidence BR each frame · ~$60'],
+          ['C · Four-corner array', '4× MR60BHA2 at bed corners · zero blind spots · for high-risk patient or facility · ~$120'],
+        ]
+      },
+      {
+        heading: 'Fusion pseudocode (runs on Pi)',
+        code:
+`# every 1 s, score each sensor's confidence in seeing the chest right now
+br = max_by_confidence([radar1.br, radar2.br, thermal.br])
+hr = radar_best.hr
+snoring = audio_classifier.last_label == "snore"
+motion  = load_cells.delta(>5kg over 2s)
+
+# event detector: BR is 0 (or <50% baseline) for ≥10 s
+if br_history.below_threshold_for(seconds=10):
+    event = ApneaEvent(start=t0, end=t,
+                       duration=t-t0,
+                       hr_spike=hr_history.spike_after(t),
+                       snore_lead=snoring_history.window(t-30, t),
+                       motion_at_end=motion_history.window(t, t+5))
+    events.append(event)
+
+# per-night summary
+def nightly_summary(events, sleep_hours):
+    ahi = len(events) / sleep_hours
+    return {
+      "ahi_proxy": round(ahi, 1),
+      "events_total": len(events),
+      "events_over_20s": sum(1 for e in events if e.duration > 20),
+      "snore_minutes": snore_total_minutes,
+      "supine_minutes": posture_total["supine"],
+      "baseline_drift_pct": (ahi - rolling_30d_mean) / rolling_30d_mean * 100,
+    }`
+      },
+      {
+        heading: 'Caregiver UI — the only thing that leaves the home',
+        code:
+`{
+  "night_of": "2026-06-28",
+  "estimated_AHI": 14.2,
+  "events_total": 87,
+  "events_over_20s": 3,
+  "snore_minutes": 142,
+  "supine_minutes": 312,
+  "baseline_drift": "+18% vs 30-day mean",
+  "suggest": "Talk to your doctor about a clinical sleep study"
+}`
+      },
+      {
+        heading: 'Privacy + consent contract',
+        rows: [
+          ['Audio',             'Opt-in. Mic captures continuously but only the snore-classifier label + dB level leave the device. No raw audio. No transcription.'],
+          ['Voiceprint',        'NOT used here · we don\'t identify speakers from snoring · opt-in separately for that'],
+          ['Visible indicator', 'Hardware LED on the sensor enclosure when mic is active'],
+          ['Storage',           'Nightly summaries stored on the Pi · 90-day rolling history · exportable to clinician as a CSV at caregiver request'],
+          ['Off switch',        'Single toggle in iOS disables the apnea screen entirely · no data captured while off'],
+        ]
+      },
+      {
+        heading: 'Audience-specific variants',
+        rows: [
+          ['Elder care',  'Most relevant — adult OSA is underdiagnosed · trend nudges family to refer to a sleep clinic'],
+          ['Baby care',   'Pediatric apnea-of-prematurity screen · longer breath-pause threshold (≥20 s for infants) · NOT a substitute for a clinical apnea monitor for at-risk newborns'],
+          ['Facility',    'One Pi monitors N rooms · facility dashboard shows the patients with the worst AHI trends · staffing decision support'],
+          ['Predictive',  'Per-person baseline drift over weeks/months · sudden worsening = referral signal · stable improvement on CPAP = compliance signal'],
+        ]
+      }
+    ]
+  }
+},
+
+{
+  group: 'Composite systems (multi-sensor screening)',
+  name: 'Home Security · Burglary Alert', sub: 'multi-zone presence + door + glass-break · armed/away modes',
+  iface: 'fusion', cost: '$40–120', ease: 'easy', consent: 'optin',
+  desc: 'A privacy-first burglary layer that uses the SAME radar + reed-switch hardware already in the home. Three modes (Home / Away / Sleep) gate which events count as alerts. NOT a UL-listed alarm — it complements a real security system, doesn\'t replace it.',
+  scenarios: ['SAFETY', 'IN_OUT', 'ELDER', 'FACILITY'],
+  detail: {
+    title: 'Home Security · Burglary Alert — multi-sensor, mode-gated',
+    meta: 'Reuses radar + reed switches + opt-in mic · armed/disarmed via the iOS app · alerts go ONLY to family/caregiver, never to a third-party monitoring service',
+    rows: [
+      ['What it does',     'Detects unexpected presence / door open / glass break and sends an alert based on the current mode (Home / Away / Sleep)'],
+      ['What it does NOT', 'Dispatch police · sound a 110 dB siren · talk to ADT / Vivint / monitoring centers · replace a UL-listed alarm panel'],
+      ['Mode gating',      'Home (people expected) · Away (any presence = alert) · Sleep (presence outside bedroom = alert)'],
+      ['Alert path',       'iOS push → caregiver phone · optional WS2812B/buzzer on-prem · NO cloud monitoring service'],
+      ['Compared to ADT',  'No monthly fee · works during internet outage (local push to a phone on same Wi-Fi) · doesn\'t call police · NOT insurance-eligible alarm system'],
+      ['Caveat',           'For real "police dispatch" coverage, keep a UL-listed system. This is a complementary smart layer.'],
+    ],
+    sections: [
+      {
+        heading: 'Detection signals (what triggers an alert in each mode)',
+        rows: [
+          ['Presence in any room (Away mode)', 'Any radar reports has_target=true → escalate immediately'],
+          ['Presence outside bedroom (Sleep)', 'Radar in living room/hallway fires while bedroom radar still shows presence → unknown person'],
+          ['Door/window opens (Away/Sleep)',    'Reed switch on front door, back door, ground-floor windows'],
+          ['Glass break (always)',              'Opt-in mic classifier: wideband crash + tinkle decay · one-shot label, never audio'],
+          ['Unknown voiceprint (opt-in only)',  'Speaker-ID flags a voice not enrolled in the household → escalation'],
+          ['Footsteps when no one home',        'Audio classifier · pattern of rhythmic low-freq impacts'],
+          ['Garage / unexpected zone at night', 'Zone-aware radar (LD2450 X/Y) sees motion in the garage zone past 11 PM'],
+        ]
+      },
+      {
+        heading: 'Three modes (set by caregiver)',
+        rows: [
+          ['HOME',  'Family is around · alerts only on (a) glass break, (b) ground-floor window opening, (c) unknown voiceprint (if enrolled)'],
+          ['AWAY',  'Nobody should be inside · ANY radar presence or door open = alert · most aggressive'],
+          ['SLEEP', 'Bedroom presence OK · any other room presence after 11 PM = alert (with grace for bathroom trips)'],
+        ]
+      },
+      {
+        heading: 'Pet-immunity (the classic alarm-system failure mode)',
+        rows: [
+          ['Radar size filter',  'mmWave radars report target distance + RCS — small low-RCS targets <30 kg classified as pet'],
+          ['Thermal silhouette', 'AMG8833/MLX90640 sees pet body shape — clearly distinguishes from human'],
+          ['Result',             '4-legged moving warm thing crossing the living room at 2 AM no longer wakes the family'],
+        ]
+      },
+      {
+        heading: 'Escalation ladder (graduated response)',
+        code:
+`event: front_door_opened  AND mode == "Away"
+   → t=0s    quiet notify on caregiver phone (silent)
+   → t=10s   no caregiver dismissal → ringtone alert
+   → t=30s   still no dismissal → buzzer fires in the house
+              + LED strip turns red
+              + neighbours-list push (optional)
+   → t=60s   caregiver dashboard surfaces "still active"
+   → escalation NEVER goes to police automatically.
+              Caregiver makes that call themselves.`
+      },
+      {
+        heading: 'Architecture (reuses existing RuView fabric)',
+        code:
+`Sensors (per-room, already in RuView):
+  - MR60BHA2 or LD2410C radar    → presence
+  - Reed switch on door/window   → contact
+  - (opt-in) INMP441 mic         → glass-break classifier
+  - (opt-in) Speaker ID model    → unknown-voice flag
+
+Pi (sensing-server):
+  - SecurityMode = Home | Away | Sleep
+  - EventGate(mode) decides if a sensor event becomes an alert
+  - EscalationLadder timer (0s/10s/30s/60s)
+  - Push via APNs to enrolled caregiver phones
+
+Mobile (RuView app):
+  - "Arm Away" / "Sleep" buttons on the home screen
+  - Geofence auto-arm: when last family phone leaves the LAN, suggest Away
+  - In-app dismiss = stops escalation immediately`
+      },
+      {
+        heading: 'Pi-side AI uplift (6 TOPS NPU does the heavy lifting)',
+        rows: [
+          ['Routine model',     'Per-home anomaly detector trained on 30 days of door/presence patterns · flags 3 AM door open as outside-baseline'],
+          ['Pet-vs-person',     'Tiny CNN on thermal silhouettes — 4-legged vs 2-legged classifier · ~5 ms inference on RK3588 NPU'],
+          ['Glass-break v2',    'Higher-accuracy spectral classifier (YAMNet distilled) running on Pi beats ESP32-S3\'s smaller model'],
+          ['Footsteps cadence', 'Rhythm + intensity model distinguishes "walking around" from "sneaking" — needs Pi compute'],
+          ['Speaker-ID',        'ECAPA-TDNN on Pi NPU · ~30 ms · unknown-voice escalation'],
+          ['Why on Pi not edge','Bigger models · access to 30-day history · fuses N sensors at once · sensors stay dumb + cheap'],
+        ]
+      },
+      {
+        heading: 'Audience-specific variants',
+        rows: [
+          ['Elder care',  'Reverse-burglary too: ALERT IF the front door opens at 3 AM with mom inside (wandering risk)'],
+          ['Baby care',   '"Stranger near crib" alert — radar + door fusion for the nursery'],
+          ['Facility',    'Per-resident perimeter — "Mrs. Patel left her room at 02:15" surfaces to nursing station'],
+          ['Predictive',  'Pattern learns the family\'s routine (door at 8 AM, again at 6 PM) — flags out-of-pattern events'],
+        ]
+      },
+      {
+        heading: 'Privacy + consent contract',
+        rows: [
+          ['Default sensors',  'Radar + reed switches are default-on · they fire local events on the Pi · no cloud involved'],
+          ['Audio (mic)',      'Opt-in. Glass-break + footsteps classifiers run on-chip. Only labels leave. Hardware LED visible.'],
+          ['Voiceprint',       'Explicit per-person opt-in. Enrolling someone\'s voice is biometric — caregiver must accept that.'],
+          ['Camera (if added)','Strongly recommend AGAINST a camera for the burglar use-case · use thermal + radar instead'],
+          ['Recordings',       'There aren\'t any. The system stores event labels and timestamps, not media.'],
+          ['No 3rd-party',     'Alerts go to the family\'s own phones. No monitoring center. No data ever leaves the home.'],
+        ]
+      }
+    ]
+  }
+},
+
+{
+  group: 'Composite systems (multi-sensor screening)',
+  name: 'Pi-side AI · 6 TOPS NPU', sub: 'on-device models that fuse sensors and lift every screen',
+  iface: 'on-Pi', cost: 'included', ease: 'easy', consent: 'default',
+  desc: 'The Orange Pi 5 has a 6 TOPS NPU (RK3588). It quietly runs small AI models that fuse the raw radar/thermal/audio/door signals into accurate, caregiver-readable events. This is the layer that turns cheap sensors into clinically useful screens.',
+  scenarios: ['PREDICT', 'ELDER', 'BABY', 'FACILITY', 'FALL', 'SLEEP', 'HRBR', 'SAFETY'],
+  detail: {
+    title: 'Pi-side AI — small models, big accuracy lift',
+    meta: 'RK3588 has a 6 TOPS NPU (INT8/INT4) + 8 ARM cores · runs multiple tiny models in parallel · all inference local, no cloud',
+    rows: [
+      ['Compute',         '6 TOPS NPU (rknpu2 runtime) + 4× A76 @ 2.4 GHz + 4× A55 @ 1.8 GHz · 8 GB LPDDR5'],
+      ['Runtime',         'rknpu2 SDK · models converted from PyTorch/TensorFlow via Rockchip toolkit'],
+      ['Throughput',      'YOLOv8n: ~30 FPS at 640×640 · MobileNet: ~200 FPS · ECAPA-TDNN: ~30 ms'],
+      ['Memory headroom', 'Plenty for 5–10 concurrent small models (each <50 MB)'],
+      ['Why it matters',  'Sensors stay cheap and dumb · accuracy lives in the Pi · we update models OTA without changing hardware'],
+      ['Privacy',         'Everything runs on the Pi. No model inference happens in the cloud. Updates come down signed (see OTA doc).'],
+    ],
+    sections: [
+      {
+        heading: 'Model catalog — what runs on the Pi today (or could)',
+        rows: [
+          ['Activity classifier',      'Walking · sitting · lying · falling — input: radar feature vector + thermal silhouette · output: label + confidence · 5 ms'],
+          ['Snore detector',           'Mel-spectrogram CNN · binary snore/non-snore · runs at 4 Hz · 8 ms'],
+          ['Glass-break detector',     'YAMNet-distilled CNN · multi-class audio event · 10 ms per window'],
+          ['Speaker verification',     'ECAPA-TDNN · 192-dim embedding + cosine match against enrolled voiceprints · 30 ms'],
+          ['Pet-vs-person',            'Tiny CNN on thermal silhouettes · 4-legged vs 2-legged · 5 ms · de-pets the burglary alarm'],
+          ['Fall confirmer',           'Fuses MR60FDA2 + thermal + audio fall-sound + load cell drop · gradient-boosted classifier · final fall verdict'],
+          ['Vital-confidence model',   'Combines radar HR + thermal chest rise + posture · outputs a "trustworthy now? y/n" gate for the iOS display'],
+          ['Sleep posture',            'Thermal silhouette classifier · supine / lateral / prone · 8 ms'],
+          ['Per-home routine model',   'Time-series anomaly detector over 30 d of presence/door history · flags out-of-routine events'],
+          ['Apnea event detector',     'Recurrent model over the per-second BR stream · spots ≥10 s pauses + Cheyne–Stokes patterns'],
+          ['Baseline-drift detector',  'Per-person rolling baseline (HR, BR, sleep, motion) · flags 2σ deviations as referral signals'],
+        ]
+      },
+      {
+        heading: 'How a Pi-side model improves a sensor (example: radar + ML > radar alone)',
+        code:
+`# MR60BHA2 raw signal is noisy and has a long tracker hold.
+# A 12-feature window from BOTH the radar and the room context
+# goes into a tiny model that outputs a calibrated probability:
+
+features = [
+    radar.has_target, radar.target_count,
+    radar.distance_cm, radar.distance_rate_cm_s,
+    radar.hr_bpm, radar.br_bpm, radar.hr_confidence,
+    pir.last_motion_seconds_ago,                # PIR sees no-motion fast
+    thermal.body_blob_count, thermal.max_temp,  # thermal sees through stillness
+    load_cells.delta_kg,
+    time_of_day_minutes,
+]
+
+# Output: probabilistic presence + classified state, all on Pi NPU.
+p = activity_model.predict(features)
+# -> { "present": 0.97, "state": "present_still", "confidence": 0.92 }
+
+# When the radar's tracker is still holding the old target but
+# PIR + thermal + load-cells all say "empty" for 4 s, the model
+# correctly declares Empty -- BEFORE the radar's 4-14 s hold expires.`
+      },
+      {
+        heading: 'Where Pi-side AI shows up across the catalog',
+        rows: [
+          ['Burglary',    'Routine anomaly · pet-vs-person · footstep cadence · speaker-ID for unknown-voice flag'],
+          ['Apnea',       'Event detector · baseline drift · Cheyne–Stokes pattern detector · multi-sensor fusion'],
+          ['Fall',        'Fall confirmer fuses radar fall + thermal silhouette posture + audio fall-sound + bed load drop'],
+          ['Vitals',      'Vital-confidence model gates the iOS display · turns "HR 89 (maybe?)" into "HR 89 · trusted"'],
+          ['Presence',    'Activity classifier kills the radar tracker hold by fusing PIR + thermal + radar'],
+        ]
+      },
+      {
+        heading: 'OTA story (already in place)',
+        rows: [
+          ['Models ship as artifacts', 'Each ML model is a versioned .rknn file inside the signed .swu bundle from Norim AWS'],
+          ['No re-flash',              'New apnea model = next overnight Pi update · sensors untouched'],
+          ['Rollback',                 'If a new model regresses on a household\'s baseline, U-Boot A/B revert restores the prior one'],
+          ['Per-household tuning',     'Personalized baselines stay local · only model code is shared, never the user\'s data'],
+        ]
+      }
+    ]
+  }
+},
+
+/* ───────── AIR QUALITY (lungs · allergens · ventilation) ───────── */
+{
+  group: 'Air quality (lungs · allergens · ventilation)',
+  name: 'PMS5003 / SEN5x — PM2.5 + PM10', sub: 'particulate matter · UART or Qwiic',
+  iface: 'UART/I²C', cost: '$20–35', ease: 'easy', consent: 'default',
+  desc: 'Laser-scattering particulate counter. Reads PM1.0, PM2.5, PM10. Wildfire smoke, dust storms, indoor cooking smoke, allergens — anything that lives in the air gets counted.',
+  scenarios: ['ENVIRO', 'SAFETY', 'PREDICT', 'ELDER', 'BABY'],
+  detail: {
+    title: 'PMS5003 / Sensirion SEN5x — particulate matter',
+    meta: 'Laser-scattering PM counter · UART (PMS5003) or I²C (SEN5x) · 1 Hz update',
+    rows: [
+      ['Outputs',  'PM1.0 · PM2.5 · PM10 (µg/m³) · SEN5x also adds VOC + NOx + temp/RH'],
+      ['Library',  'ESPHome: pmsx003 · or sen5x'],
+      ['Lifetime', '~3 years continuous use before laser dims'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — respiratory health front-line',
+        rows: [
+          ['Elders w/ COPD',   'PM2.5 spike of >35 µg/m³ → push "close windows + run air filter" advice'],
+          ['Baby room',        'Continuous PM2.5 < 12 µg/m³ baseline · alert on cooking-smoke drift into the nursery'],
+          ['Wildfire season',  'Indoor vs outdoor PM2.5 gap drops to 0 → home seal failing · suggest filter change'],
+          ['Predict illness',  'PM2.5 trend correlates with next-week respiratory symptoms · long-arc trend useful'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Air quality (lungs · allergens · ventilation)',
+  name: 'SGP40 / ENS160 — VOC + eCO₂', sub: 'air quality index · Qwiic',
+  iface: 'I²C', cost: '$8–15', ease: 'easy', consent: 'default',
+  desc: 'Metal-oxide VOC sensor with on-chip air-quality index. Picks up cooking gases, cleaning chemicals, off-gassing, mold metabolites. Cheap supplement to the real CO₂ from SCD41.',
+  scenarios: ['ENVIRO', 'SAFETY', 'PREDICT'],
+  detail: {
+    title: 'SGP40 (Sensirion) or ENS160 (ScioSense) — VOC index',
+    meta: 'Tin-oxide / SnO₂ MOS sensor · outputs an AQI 0-500 + raw VOC index · I²C',
+    rows: [
+      ['Outputs',  'AQI 0-500 · TVOC ppb · eCO₂ ppm (estimated)'],
+      ['Caveat',   'eCO₂ is ESTIMATED — for real CO₂ use the SCD41 instead'],
+      ['Library',  'ESPHome: sgp40 / ens160'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — chemistry that radar/IR can\'t see',
+        rows: [
+          ['Stove forgot',     'Sudden VOC + low room presence → forgotten cooker (cross-check with stove current sensor)'],
+          ['Cleaning chems',   'Bleach + ammonia mix VOC signature → alert (genuinely dangerous combo)'],
+          ['Mold',             'Persistent low-level VOC drift in a closed room → mold metabolites suspect'],
+        ]
+      }
+    ]
+  }
+},
+
+/* ───────── WATER, LEAKS & TEMPERATURE ───────── */
+{
+  group: 'Water, leaks & temperature probes',
+  name: 'Water-leak probe', sub: '2-pin conductivity · 1 GPIO',
+  iface: 'GPIO', cost: '$1–3', ease: 'easy', consent: 'default',
+  desc: 'Two metal contacts. Water bridges them → GPIO goes LOW. Dumb, cheap, reliable. Place under sink, behind toilet, near washer hookups.',
+  scenarios: ['SAFETY', 'ELDER'],
+  detail: {
+    title: 'Water-leak probe (conductivity)',
+    meta: 'Two-contact conductivity sensor · GPIO with pullup · digital HIGH dry · LOW wet',
+    rows: [
+      ['Wiring',  '2 wires from probe → 1 GPIO + GND (internal pullup)'],
+      ['Library', 'ESPHome: binary_sensor: gpio · inverted'],
+      ['Power',   'Sub-µA · battery-friendly'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — one of the top in-home emergencies for elders',
+        rows: [
+          ['Kitchen sink',    'Faucet left on → flood detected within seconds → push "turn off faucet" to caregiver phone'],
+          ['Toilet leak',     'Running toilet wastes 200+ gal/day · capacitive variant detects damp floor over time'],
+          ['Washer hose',     'Burst hose floods basement · one probe behind the washer catches it before catastrophic damage'],
+          ['Heater drip',     'Catches water-heater failure days before the tank ruptures'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Water, leaks & temperature probes',
+  name: 'YF-S201 water flow', sub: 'hall pulse · per-litre cadence',
+  iface: 'GPIO', cost: '$5', ease: 'easy', consent: 'optin',
+  desc: 'Hall-effect water-flow meter. Outputs a pulse per litre. Inline with a faucet/shower line, infers shower / handwash / toilet-flush events from the waveform shape.',
+  scenarios: ['ROUTINE', 'ELDER', 'PREDICT', 'BABY'],
+  detail: {
+    title: 'YF-S201 — hall-effect water flow',
+    meta: 'Inline 1/2" plastic flow meter · hall sensor outputs ~7.5 Hz/(L/min) · 1 GPIO + 5 V power',
+    rows: [
+      ['Install',   'Inline plumbing — plumber-level, not plug-and-play. Best done at first install.'],
+      ['Outputs',   'Pulse count → L/min flow rate · cumulative L'],
+      ['Library',   'ESPHome: pulse_counter or pulse_meter'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — bathroom routine inference (privacy-respecting alternative to cameras)',
+        rows: [
+          ['Shower',          'High-flow ~8-10 L/min for 4-8 min · signature obvious'],
+          ['Handwash',        'Short pulse <30 s'],
+          ['Toilet flush',    '~6 L in 8 s'],
+          ['Bathroom freq',   'Trending bathroom-event count per day · sudden spike = UTI candidate (the literature is strong on this)'],
+          ['Hydration proxy', 'No drinks-from-tap events for >12 h → wellness check'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Water, leaks & temperature probes',
+  name: 'DS18B20 — sealed temp probe', sub: '1-Wire · waterproof',
+  iface: '1-Wire', cost: '$2', ease: 'easy', consent: 'default',
+  desc: 'Industrial-grade sealed 1-wire temperature probe. Drop into water lines, radiator surface, HVAC ducts. One wire to ESP32-S3 + power.',
+  scenarios: ['SAFETY', 'ENVIRO'],
+  detail: {
+    title: 'DS18B20 — sealed 1-wire temperature probe',
+    meta: 'Maxim DS18B20 in stainless steel sheath · 1-wire bus · multiple probes on same bus',
+    rows: [
+      ['Range',     '-55 to +125 °C · ±0.5 °C accuracy'],
+      ['Wiring',    '1 GPIO with 4.7 kΩ pullup to 3.3 V · multiple probes share the same wire'],
+      ['Library',   'ESPHome: dallas + ds18b20'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — scalding prevention + HVAC monitoring',
+        rows: [
+          ['Hot-water guard', 'Probe on faucet output > 49 °C → alert (elder skin scalds at 60 °C in 5 s)'],
+          ['Radiator on',     'Surface temp tells whether the heat is actually running'],
+          ['Fridge integrity','One probe inside the fridge · alert if > 5 °C for >2 h'],
+        ]
+      }
+    ]
+  }
+},
+
+/* ───────── ENERGY & APPLIANCE CURRENT ───────── */
+{
+  group: 'Energy & appliance current',
+  name: 'SCT-013 — CT clamp', sub: 'non-invasive AC current · ADC',
+  iface: 'ADC', cost: '$8–15', ease: 'med', consent: 'default',
+  desc: 'Split-core current transformer that clamps over a single hot wire — non-invasive, no electrician needed (with proper safety). Detects appliance ON/OFF without modifying wiring.',
+  scenarios: ['SAFETY', 'ROUTINE', 'ELDER'],
+  detail: {
+    title: 'SCT-013-030 — current transformer (CT clamp)',
+    meta: 'Split-core CT · 30 A primary / 1 V AC output @ rated current · ADC input (with burden resistor + bias)',
+    rows: [
+      ['Range',     '0-30 A AC (other variants up to 100 A)'],
+      ['Wiring',    'Clamp around ONE conductor (not the whole cable) · burden resistor + DC bias to ADC'],
+      ['Library',   'ESPHome: ct_clamp'],
+      ['Safety',    '⚠ NEVER open the clamp around an energized wire without the burden resistor — induced voltage can be hundreds of volts'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — forgotten stove + appliance-status inference',
+        rows: [
+          ['Stove on',     'Clamp on the stove circuit at the panel · stove-on > 15 min with no presence in kitchen → alert (#1 home fire cause among elders)'],
+          ['Microwave',    'Detect microwave use → meal-time confirmation'],
+          ['Coffee maker', 'Routine signal — used or skipped'],
+          ['Washer/dryer', 'Cycle start/end → "her laundry is done"'],
+        ]
+      }
+    ]
+  }
+},
+
+/* ───────── EXISTING "Safety" GROUP — supplemental sensors ───────── */
+{
+  group: 'Safety (hazards & alerts)',
+  name: 'MQ-2 / photoelectric smoke', sub: '⚠ supplemental smoke telemetry',
+  iface: 'ADC/GPIO', cost: '$3–8', ease: 'easy', consent: 'default',
+  desc: 'Cheap smoke/combustible-gas sensors. Adds smoke telemetry to RuView but is NOT a UL-listed alarm. Always pair with a real listed smoke alarm.',
+  scenarios: ['SAFETY'],
+  detail: {
+    title: 'MQ-2 / photoelectric smoke',
+    meta: 'Tin-oxide combustible-gas (MQ-2) or photoelectric chamber · analog or digital out',
+    rows: [
+      ['Caveat',  '⚠ NOT a primary life-safety device · KEEP a UL-listed smoke alarm · this adds early telemetry only'],
+      ['Library', 'ESPHome: adc + binary_sensor'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — telemetry, not protection',
+        rows: [
+          ['Telemetry',     'Smoke detected → push to caregiver phone · trend over time → "burnt food more often this month"'],
+          ['Honest limit',  'A real alarm sounds locally — RuView adds the family-side awareness'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Safety (hazards & alerts)',
+  name: 'Pressure mat (FSR strip)', sub: 'bed-exit / chair-exit · ADC',
+  iface: 'ADC', cost: '$10', ease: 'easy', consent: 'default',
+  desc: 'Force-sensitive resistor strip under a bedside rug or chair cushion. Reads pressure. Gold-standard bed-exit alert in nursing facilities — instant, no radar hold.',
+  scenarios: ['FALL', 'NIGHT', 'ELDER', 'FACILITY'],
+  detail: {
+    title: 'Pressure mat / FSR strip — sub-second bed exit',
+    meta: 'Force-sensitive resistor or piezo strip · analog read · threshold-debounced',
+    rows: [
+      ['Read time',  '< 100 ms · genuinely instant'],
+      ['Placement',  'Under bedside rug · or under chair cushion · or under bed itself'],
+      ['Library',    'ESPHome: adc + binary_sensor with threshold'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — the radar hold problem solved with $10',
+        rows: [
+          ['Bed exit',    'Foot hits floor → mat triggers · pair with LED night-light → safe nighttime bathroom trip'],
+          ['Chair exit',  'For wheelchair users — alert when they unweight the cushion (fall-risk indicator)'],
+          ['Facility',    'Per-bed mat is the standard-of-care in fall-prevention programs'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Safety (hazards & alerts)',
+  name: 'BMP280 / BMP388 — barometer', sub: 'pressure + altitude · Qwiic',
+  iface: 'I²C', cost: '$3', ease: 'easy', consent: 'default',
+  desc: 'High-precision barometric pressure sensor. Detects window-open events (pressure drops), HVAC running, and weather context for outdoor walks.',
+  scenarios: ['ENVIRO', 'IN_OUT'],
+  detail: {
+    title: 'BMP280 / BMP388 — barometric pressure',
+    meta: 'Bosch BMP280/BMP388 · ±1 hPa accuracy · I²C · also reports temperature',
+    rows: [
+      ['Library', 'ESPHome: bmp280 / bmp388'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — small but useful',
+        rows: [
+          ['Window-open',  'Detected as a step-change in pressure ± temperature · cross-check with reed switches'],
+          ['HVAC running', 'Pressure delta room-to-outside reveals when forced air is on · ventilation insight'],
+          ['Weather context','Outdoor walk recommendation: "barometric pressure dropping → rain in ~2 h"'],
+        ]
+      }
+    ]
+  }
+},
+
+/* ───────── IDENTITY & ACCESS ───────── */
+{
+  group: 'Identity & access (NFC / BLE / RFID)',
+  name: 'PN532 NFC reader', sub: 'I²C · 13.56 MHz NFC/RFID',
+  iface: 'I²C', cost: '$5–10', ease: 'easy', consent: 'optin',
+  desc: 'NFC/RFID reader. Tap a card / pill bottle / staff badge / med blister pack to log an event. ESP32-S3 supported via Adafruit + ESPHome.',
+  scenarios: ['ROUTINE', 'SAFETY', 'FACILITY', 'ELDER'],
+  detail: {
+    title: 'PN532 — NFC/RFID reader',
+    meta: 'NXP PN532 · ISO/IEC 14443A/B + FeliCa · I²C (or SPI/UART) · Qwiic-friendly with breakout',
+    rows: [
+      ['Range',     '~3-5 cm (intentionally close — security feature)'],
+      ['Library',   'ESPHome: pn532'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — medication adherence + facility badge',
+        rows: [
+          ['Pill bottle',    'NFC sticker on each med bottle · tap when taken · adherence log per medication'],
+          ['Med dispenser',  'Pill organizer compartments tagged · scan when opened'],
+          ['Front door key', 'Family tap-in/out log (replaces speculative presence detection · explicit)'],
+          ['Facility staff', 'Caregiver badge taps reveal who entered which room when'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Identity & access (NFC / BLE / RFID)',
+  name: 'BLE advertising scanner', sub: '✅ shipped · Pi-side bluer daemon · zero new hardware',
+  iface: 'BLE', cost: '$0', ease: 'easy', consent: 'optin',
+  desc: '✅ SHIPPED — `ruview-ble-scanner.service` runs on the Pi via BlueZ. Passive-scan BLE adverts → MQTT `ruview-ble/<id>/state`. Anonymises unknown MACs (stable hash + per-host salt); enrolled devices publish under their plaintext MAC + caregiver-given friendly name.',
+  scenarios: ['IN_OUT', 'HRBR', 'PREDICT', 'ELDER', 'BABY', 'FACILITY'],
+  detail: {
+    title: 'BLE advertising scanner — passive observer (shipped)',
+    meta: 'Rust daemon on the Pi using bluer (BlueZ DBus) · passive-scan only · NEVER initiates pairing · MQTT-published',
+    rows: [
+      ['Status',         '✅ Installed and active on the home Pi at /usr/bin/ruview-ble-scanner'],
+      ['Topic',          'ruview-ble/<id>/state · retained · one JSON payload per device'],
+      ['Anonymisation',  'Unknown devices appear as `anon-<16-hex>` · stable per-host via salt in /var/lib/ruview-ble/salt'],
+      ['Allowlist',      '/etc/ruview/ble-allowlist · "AA:BB:CC:DD:EE:FF FriendlyName" per line · enrolled = plaintext MAC + name'],
+      ['Throttle',       'One MQTT publish per device per N ms (default 2000) regardless of advert rate'],
+      ['RSSI filter',    'Default -85 dBm so neighbour devices don\'t pollute the log'],
+      ['What it sees',   'MAC · RSSI · advertised name · service UUIDs · manufacturer-data hex · service-data hex'],
+      ['What it does NOT', 'Pair · GATT-connect · read encrypted characteristics (those live in the dedicated HR decoder, see next card)'],
+    ],
+    sections: [
+      {
+        heading: 'Healthcare-grade BLE devices we can integrate (per protocol)',
+        rows: [
+          ['Standard HR Service 0x180D', '✅ HR decoder shipped — see next card (Polar, Garmin, Wahoo, COROS, many fitness HR straps)'],
+          ['Dexcom G7 / G6',       'CGM advertising packets · glucose levels every 5 min · proprietary, decoder not yet built'],
+          ['FreeStyle Libre 3',    'CGM · 1-min cadence · proprietary, decoder not yet built'],
+          ['Omron BP cuffs',       'Blood pressure post-measurement broadcast · standard 0x1810 BP service · easy next decoder'],
+          ['Withings / Eufy scale','Weight per family member · standard 0x181D weight scale service'],
+          ['Apple Watch / Garmin', 'HR, motion, fall detection (when shared via Health/Garmin Connect — not raw BLE)'],
+          ['Wellue / Masimo pulse-ox', 'SpO₂ + HR · 0x1822 pulse oximeter service'],
+          ['Personal-emergency button (BLE pendant)', 'Panic-button broadcasts panic event'],
+        ]
+      },
+      {
+        heading: 'Presence proxy — no-hardware "who is home"',
+        rows: [
+          ['Family phones',   'Each phone\'s BLE address (or a randomized stable identifier) maps to a household member'],
+          ['Privacy',         'iOS rotates BLE addresses — we use stable identifiers ONLY for explicitly-paired devices in our app'],
+          ['Geofence',        '"All known phones left the Wi-Fi → mom is alone" routing'],
+        ]
+      },
+      {
+        heading: 'Live MQTT payload (real frame from the running scanner)',
+        code:
+`# topic: ruview-ble/anon-3d9173ea85e5d349/state
+{
+  "id": "anon-3d9173ea85e5d349",
+  "name": null,
+  "rssi_dbm": -102,
+  "advertised_name": null,
+  "service_uuids": [],
+  "manufacturer_data": {},
+  "service_data": {},
+  "seen_at": "2026-06-29T05:41:30.129Z"
+}`
+      },
+      {
+        heading: 'Consent contract',
+        rows: [
+          ['Default',  'OFF · service ships disabled (systemctl enable --now ruview-ble-scanner)'],
+          ['Anonymisation', 'Unknown MACs are hashed; you can\'t correlate a neighbour\'s phone across reboots without the per-host salt'],
+          ['Storage',  'Last-reading + timestamp · retained MQTT only · no database · iOS pulls live state via WS or REST'],
+          ['No pairing without consent', 'A medical BLE device only joins the household roster after caregiver scans + confirms in the iOS app'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Identity & access (NFC / BLE / RFID)',
+  name: 'BLE Heart Rate Service decoder', sub: '✅ shipped · GATT 0x180D → MQTT HR/HRV',
+  iface: 'BLE GATT', cost: '$0 + the HR strap', ease: 'easy', consent: 'explicit',
+  desc: '✅ SHIPPED — `ruview-ble-hr-decoder.service` GATT-subscribes to standard Bluetooth Heart Rate Service (UUID 0x180D) on caregiver-enrolled devices and republishes decoded HR + RR-intervals + sensor-contact to MQTT. Works with any Polar / Garmin / Wahoo / COROS / generic HR strap.',
+  scenarios: ['HRBR', 'PREDICT', 'SLEEP', 'ELDER', 'BABY', 'FACILITY'],
+  detail: {
+    title: 'BLE Heart Rate Service decoder — shipped, tested, standards-compliant',
+    meta: 'Per-device GATT subscriber (no pairing required by spec) · pure decoder + GATT subscriber crate · 10/10 unit tests on x86_64 + aarch64',
+    rows: [
+      ['Status',        '✅ Built · /usr/bin/ruview-ble-hr-decoder · systemd unit ruview-ble-hr-decoder.service · disabled by default'],
+      ['Spec',          'Bluetooth SIG Heart Rate Service v1.0 · service 0x180D · characteristic 0x2A37 (HR Measurement)'],
+      ['Pairing',       'Not required · HR Service permits unbonded notifications by spec'],
+      ['Code',          'v2/crates/ruview-ble-scanner/src/hr_decoder.rs (pure, tested) + src/bin/ruview-ble-hr-decoder.rs (GATT loop)'],
+      ['Topic',         'ruview-ble/hr/<mac> · QoS 1 · not retained (live stream)'],
+      ['Devices that work', 'Any device advertising 0x180D: Polar H9/H10/OH1, Garmin HRM-Dual/Pro, Wahoo TICKR, COROS HR Band, most fitness watches in HR-broadcast mode, MAX30102-based DIY straps'],
+    ],
+    sections: [
+      {
+        heading: 'What every HR notification produces',
+        code:
+`# topic: ruview-ble/hr/aa:bb:cc:dd:ee:ff
+{
+  "mac": "aa:bb:cc:dd:ee:ff",
+  "bpm": 72,
+  "sensor_contact": "detected",          // or "not_detected" / "not_supported"
+  "energy_expended_kj": 200,             // optional, only if device sends it
+  "rr_intervals_s": [0.875, 0.901, 0.890],  // optional, drives HRV computation
+  "seen_at": "2026-06-29T05:54:32.887Z"
+}`
+      },
+      {
+        heading: 'Decoder coverage (Bluetooth SIG flag bits)',
+        rows: [
+          ['Bit 0', 'HR value u8 vs u16 (high-end athletes / arrhythmia can exceed 255 bpm)'],
+          ['Bit 1-2', 'Sensor contact status: not-supported / not-detected / detected'],
+          ['Bit 3',   'Energy Expended (cumulative kJ since reset)'],
+          ['Bit 4',   'RR-Intervals (0..N values, each = raw_u16 / 1024.0 seconds)'],
+          ['Tests',   '10 unit tests including realistic Polar H10 frame · empty-payload + truncation negative tests'],
+        ]
+      },
+      {
+        heading: 'Why RR intervals are the big unlock',
+        rows: [
+          ['HRV',         'RR-interval variation is the basis for HRV (rMSSD, SDNN, pNN50) — same metric Garmin / Whoop / Polar use'],
+          ['Stress',      'HRV drops under physiological stress (illness, sleep debt, dehydration) — long-arc signal'],
+          ['Recovery',    'HRV rises after a good night\'s sleep — visible by 6 AM, useful for elders\' day-planning'],
+          ['Atrial fib',  'RR-interval irregularity histogram is the standard AFib screen — opens a serious clinical use case'],
+        ]
+      },
+      {
+        heading: 'How to enable for a real HR strap',
+        code:
+`# 1) Find the strap's MAC (already in the scanner's MQTT topic)
+mosquitto_sub -h 127.0.0.1 -t "ruview-ble/#" -v
+#   → look for "service_uuids": ["0000180d-..."]
+
+# 2) Configure
+mkdir -p /etc/ruview
+cat > /etc/ruview/ble-hr.conf <<EOF
+RUVIEW_BLE_HR_DEVICES=AA:BB:CC:DD:EE:FF
+EOF
+
+# 3) Enable
+systemctl enable --now ruview-ble-hr-decoder
+
+# 4) Watch live HR
+mosquitto_sub -h 127.0.0.1 -t "ruview-ble/hr/+" -v`
+      },
+      {
+        heading: 'Per-audience',
+        rows: [
+          ['Elder care', 'Continuous HR + HRV baseline · catches AFib onset · pre-symptomatic illness flag'],
+          ['Baby care',  'Infant HR straps exist (e.g. Owlet alternatives with HR Service) — opt-in only'],
+          ['Facility',   'One decoder instance per resident · per-bed HRV dashboards · clinical-grade trend'],
+          ['Predictive', 'HRV trend is one of the strongest pre-symptomatic illness signals in the wearable literature'],
+        ]
+      },
+      {
+        heading: 'Consent contract',
+        rows: [
+          ['Explicit biometric',  'Heart-rate data is biometric — caregiver enrols each MAC explicitly'],
+          ['No raw retention',    'Live MQTT only · no database table · iOS pulls live state'],
+          ['Visible-active',      'When subscribed, the strap\'s built-in LED indicates it\'s broadcasting (not our software\'s choice)'],
+          ['Single off-switch',   'systemctl stop ruview-ble-hr-decoder kills all subscriptions immediately'],
+        ]
+      }
+    ]
+  }
+},
+
+/* ───────── MORE COMPOSITE SYSTEMS ───────── */
+{
+  group: 'Composite systems (multi-sensor screening)',
+  name: 'Medication Adherence Loop', sub: 'NFC pill bottle + cabinet reed + chime + log',
+  iface: 'fusion', cost: '$10–20', ease: 'easy', consent: 'optin',
+  desc: 'Closed-loop med-adherence: NFC-tagged pill bottle + reed switch on the medicine cabinet + scheduled chime + missed-dose escalation. Logs every dose; alerts caregiver if skipped.',
+  scenarios: ['ROUTINE', 'ELDER', 'FACILITY', 'PREDICT'],
+  detail: {
+    title: 'Medication Adherence Loop',
+    meta: 'PN532 + reed switch + piezo + Pi-side schedule engine + iOS log',
+    rows: [
+      ['What it does',  'Tracks "did mom take her 9 AM meds?" without any wearable'],
+      ['Output',        'Per-medication log: time scanned · skipped doses · trend (compliance %)'],
+      ['Escalation',    'Missed dose: gentle chime → caregiver notify → followup at +30 min'],
+    ],
+    sections: [
+      {
+        heading: 'How it works',
+        rows: [
+          ['Setup',          'Stick an NFC tag on each med bottle · tags written with the med name + dose'],
+          ['Schedule',       'Caregiver defines: "Lipitor 10 mg @ 9 AM"  · Pi keeps the timetable'],
+          ['Daily flow',     '9 AM chime → mom opens cabinet (reed fires) → taps bottle on PN532 reader → green LED confirms'],
+          ['Missed flow',    'No tap by 9:30 → reminder chime · no tap by 10:00 → caregiver push'],
+          ['Compliance %',   'Rolling 30-day adherence score · clinician-shareable'],
+        ]
+      },
+      {
+        heading: 'Per-audience fit',
+        rows: [
+          ['Elder care', 'Single-occupant high-impact use · medication non-adherence is a leading hospitalization driver'],
+          ['Facility',   'Per-resident adherence · staff dashboards · audit trail for regulators'],
+          ['Predictive', 'Adherence drop precedes cognitive decline · long-arc signal'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Composite systems (multi-sensor screening)',
+  name: 'Bathroom Routine · UTI screen', sub: 'flow + reed + light + radar · early-warning',
+  iface: 'fusion', cost: '$15–30', ease: 'med', consent: 'optin',
+  desc: 'Tracks bathroom usage WITHOUT a camera. Frequency, duration, time-of-day patterns. Sudden increase = UTI candidate (strong clinical signal in elders); decrease = constipation.',
+  scenarios: ['ROUTINE', 'PREDICT', 'ELDER', 'FALL'],
+  detail: {
+    title: 'Bathroom Routine · UTI early-warning',
+    meta: 'YF-S201 flow + door reed + BH1750 + LD2410C presence · all in bathroom · per-event signature classifier on Pi',
+    rows: [
+      ['What it tracks',  'Visits per 24 h · per-visit duration · daytime vs nighttime · shower frequency · handwash frequency'],
+      ['UTI signal',      'Sudden 2× increase in nighttime bathroom visits (typical UTI presentation in elders)'],
+      ['Fall-in-bathroom','Light on + presence + then no presence change for >5 min while light is on → check'],
+      ['Privacy',         'No camera. No audio. Only events + counts. Bathroom is the most privacy-sensitive room — we treat it that way.'],
+    ],
+    sections: [
+      {
+        heading: 'Per-audience',
+        rows: [
+          ['Elder care', 'UTI is the #1 most-missed elder diagnosis · early flag matters'],
+          ['Facility',   'Continence-care planning at scale'],
+          ['Baby care',  'Diaper-change cadence — combine with crib presence for full picture'],
+          ['Predictive', 'Hydration proxy (handwash + flush count) over weeks correlates with dehydration risk'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Composite systems (multi-sensor screening)',
+  name: 'Kitchen Safety Watch', sub: 'stove CT + smoke + presence + clock · forgotten-cooker alert',
+  iface: 'fusion', cost: '$20–40', ease: 'med', consent: 'default',
+  desc: 'Forgotten-cooker detection — the single biggest in-home fire risk for elders. CT clamp on stove + smoke + room presence + time-of-day fuses into a clear "stove on, kitchen empty" alert.',
+  scenarios: ['SAFETY', 'ELDER', 'FACILITY'],
+  detail: {
+    title: 'Kitchen Safety Watch',
+    meta: 'SCT-013 stove circuit + MQ-2 supplemental + LD2410C kitchen presence + Pi scheduler',
+    rows: [
+      ['Trigger',        'Stove draw > 200 W AND no presence in kitchen for > 5 min → "forgotten cooker" alert'],
+      ['Escalation',     'Phone push → buzzer in kitchen → optional: cut power via smart plug (factory-paired only)'],
+      ['False-positive', 'Slow-cooker / pressure-cooker steady draw ignored if scheduled (caregiver tags them)'],
+    ],
+    sections: [
+      {
+        heading: 'Per-audience',
+        rows: [
+          ['Elder care', 'Forgotten cookers + dementia is the leading home-fire scenario · this is a high-impact intervention'],
+          ['Facility',   'Group-kitchen monitoring · per-burner CT clamps'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Composite systems (multi-sensor screening)',
+  name: 'Cognitive Routine Drift', sub: 'multi-sensor 30-day baseline · dementia-signal screen',
+  iface: 'fusion', cost: 'included', ease: 'easy', consent: 'optin',
+  desc: 'Pi-side ML learns a household\'s normal weekly routine across all sensors, then flags drift. Out-of-routine wake times, missed meal events, wandering patterns precede cognitive decline events.',
+  scenarios: ['PREDICT', 'ELDER', 'FACILITY'],
+  detail: {
+    title: 'Cognitive Routine Drift — long-arc dementia screen',
+    meta: 'Pi NPU runs a per-home anomaly detector over 30-day rolling features from every sensor · daily summary',
+    rows: [
+      ['Features',  'Wake time · meal events (kitchen presence + stove) · bathroom freq · sleep efficiency · time outside · social presence'],
+      ['Output',    'Daily routine-drift score · 4-week trend · flagged behaviors when 2σ above personal baseline'],
+      ['NOT a diagnostic', 'Cognitive decline is diagnosed clinically · this surfaces patterns to discuss with a doctor'],
+    ],
+    sections: [
+      {
+        heading: 'Examples of drift the model surfaces',
+        rows: [
+          ['Wake time',    'Used to wake 6:45 ±15 min, now 4:30-9:30 unpredictably → sleep disruption'],
+          ['Wandering',    'Living-room presence at 3 AM increasing month-over-month → consider sundowning'],
+          ['Meal pattern', 'Stove on 3×/day → now 1×/day → reduced cooking · meal-prep difficulty'],
+          ['Confusion',    'Bathroom visits at unusual hours · door open with no exit · "where am I" patterns'],
+        ]
+      },
+      {
+        heading: 'Per-audience',
+        rows: [
+          ['Elder care', 'Most-valuable predictive output of the whole system · gives family weeks of warning before a crisis'],
+          ['Facility',   'Per-resident drift dashboard for clinical staff · regulatory-friendly audit trail'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Composite systems (multi-sensor screening)',
+  name: 'Respiratory Illness Early-Warning', sub: 'PM + cough + HR/BR + skin temp · pre-symptomatic',
+  iface: 'fusion', cost: '$40–80', ease: 'med', consent: 'optin',
+  desc: 'Fuses air-quality, opt-in cough audio classifier, radar HR/BR trends, and (opt-in) IR skin temp into a pre-symptomatic respiratory-illness flag. Catches flu / RSV / COVID days before the patient feels sick.',
+  scenarios: ['PREDICT', 'ELDER', 'BABY', 'FACILITY', 'HRBR'],
+  detail: {
+    title: 'Respiratory Illness Early-Warning',
+    meta: 'PMS5003 + INMP441 cough classifier + MR60BHA2 HR/BR baselines + MLX90614 (opt-in fever pass) + Pi-side fusion',
+    rows: [
+      ['Pre-symptom signals', 'Resting HR drift +5-10 bpm · BR drift +2-3 bpm · cough events per day rising · low-grade fever (only if MLX90614 opted in)'],
+      ['Time horizon',        '~2-3 days lead time vs subjective symptom onset (consistent with COVID-19 wearable studies)'],
+      ['Output',              'Risk score 0-100 · flagged at 70+ · "consider isolating + check with doctor"'],
+      ['NOT a diagnosis',     'Wellness signal · not a viral test'],
+    ],
+    sections: [
+      {
+        heading: 'How the model is grounded',
+        rows: [
+          ['Baseline',  'Per-person 30-day baselines for HR, BR, cough cadence, activity'],
+          ['Comparison','Each day vs personal baseline · not population norms (BR of 22 is normal for some elders)'],
+          ['Fusion',    'Single signal alone is noisy · 2+ correlated drifts together push the risk score over the threshold'],
+        ]
+      },
+      {
+        heading: 'Per-audience',
+        rows: [
+          ['Elder care', 'Pneumonia + flu → ER visits in this population · early warning = better outcomes'],
+          ['Baby care',  'RSV / bronchiolitis is the top infant-hospitalization cause in winter · cough trend matters'],
+          ['Facility',   'Resident-by-resident early-warning · infection-control intervention before outbreak'],
+          ['Predictive', 'A flagship use of the long-history Pi-side model · the headline outcome of the whole system'],
+        ]
+      }
+    ]
+  }
+},
+
+/* ───────── DISPLAY / ALERT ───────── */
+{
+  group: 'Alert / feedback (back-channel to the room)',
+  name: 'WS2812B LED strip', sub: 'visual alert · 1 GPIO',
+  iface: 'GPIO', cost: '$1/LED', ease: 'easy',
+  desc: 'Single-wire addressable RGB LEDs. A 1-LED indicator on the C6 enclosure = ambient "I see you" signal. Strip under the bed = night-light that flips on with PIR motion.',
+  scenarios: ['NIGHT', 'SAFETY'],
+  detail: {
+    title: 'WS2812B / NeoPixel — addressable RGB',
+    meta: 'One data wire to GPIO · per-LED 24-bit color · ESPHome native',
+    rows: [
+      ['Wiring',    '1 GPIO + GND + 5 V'],
+      ['Library',   'ESPHome: light: neopixelbus or fastled'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — ambient feedback in the room itself',
+        rows: [
+          ['Night-light',    'PIR + LOW lux → fade in a soft amber strip under the bed · prevents fall on midnight bathroom trips'],
+          ['Status hint',    'Single LED on the C6 enclosure: green = system healthy, amber = sensor reconnecting'],
+          ['No phone needed','The room itself communicates · for users who don\'t carry a phone'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Alert / feedback (back-channel to the room)',
+  name: 'Piezo buzzer', sub: 'audible reminder · 1 GPIO + PWM',
+  iface: 'GPIO', cost: '$0.50', ease: 'easy',
+  desc: 'Cheap PWM-driven buzzer. Gentle chime as a med-time reminder or a "you got up, the floor is lit" cue. Not for emergency siren — keep that for a real alarm device.',
+  scenarios: ['ROUTINE'],
+  detail: {
+    title: 'Piezo buzzer — gentle audible reminders',
+    meta: 'Passive piezo · PWM-driven via 1 GPIO',
+    rows: [
+      ['Wiring',     '1 GPIO + GND'],
+      ['Library',    'ESPHome: output: ledc → rtttl player'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — chimes for routine cues',
+        rows: [
+          ['Med-time',       'Gentle 3-note chime at 9 AM + 9 PM as a meds nudge'],
+          ['Wake-up',        'Soft increasing chime at scheduled wake time'],
+          ['Honest limit',   'NOT a panic siren · keep an actual personal-emergency button for that'],
+        ]
+      }
+    ]
+  }
+},
+];
+
+/* ─────────────────────────────────────────────────────────────────  groups + filtering ───── */
+const groups = [...new Set(sensors.map(s => s.group))];
+
+function renderNav(activeGroup) {
+  const nav = document.getElementById('cat-nav');
+  nav.innerHTML = '';
+  const btnAll = document.createElement('button');
+  btnAll.textContent = 'All';
+  btnAll.className = activeGroup === null ? 'active' : '';
+  btnAll.onclick = () => { renderNav(null); renderCatalog(null); };
+  nav.appendChild(btnAll);
+
+  groups.forEach(g => {
+    const b = document.createElement('button');
+    b.textContent = g.split(/\(/)[0].trim();  // first phrase
+    b.title = g;
+    b.className = activeGroup === g ? 'active' : '';
+    b.onclick = () => { renderNav(g); renderCatalog(g); };
+    nav.appendChild(b);
+  });
+}
+
+let pinnedId = null;
+function renderCatalog(filterGroup) {
+  const root = document.getElementById('catalog');
+  root.innerHTML = '';
+  const list = filterGroup ? sensors.filter(s => s.group === filterGroup) : sensors;
+
+  // Group within view
+  const byGroup = {};
+  list.forEach(s => { (byGroup[s.group] ||= []).push(s); });
+
+  Object.entries(byGroup).forEach(([gname, items]) => {
+    const t = document.createElement('div'); t.className = 'group-title';
+    t.innerHTML = gname + ' <span class="count">' + items.length + '</span>';
+    root.appendChild(t);
+
+    const grid = document.createElement('div'); grid.className = 'grid';
+    items.forEach((s, idx) => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.dataset.idx = sensors.indexOf(s);
+      const consentLabel =
+        s.consent === 'default'  ? 'default' :
+        s.consent === 'optin'    ? 'opt-in' :
+        s.consent === 'explicit' ? 'biometric · explicit' : '';
+      card.innerHTML = `
+        <div class="name">${s.name}</div>
+        <div class="sub">${s.sub}</div>
+        <div class="desc">${s.desc}</div>
+        <div class="badges">
+          <span class="badge iface">${s.iface}</span>
+          <span class="badge cost">${s.cost}</span>
+          <span class="badge ease-${s.ease}">${s.ease === 'easy' ? 'easy' : s.ease === 'med' ? 'medium' : 'tricky'}</span>
+          ${consentLabel ? `<span class="badge consent-${s.consent}">${consentLabel}</span>` : ''}
+        </div>
+      `;
+      card.addEventListener('mouseover', () => { if (pinnedId == null) showDetail(s, false); });
+      card.addEventListener('click',     () => { pinnedId = sensors.indexOf(s); showDetail(s, true); });
+      grid.appendChild(card);
+    });
+    root.appendChild(grid);
+  });
+}
+
+function showDetail(s, pinned) {
+  const el = document.getElementById('detail');
+  el.innerHTML = '';
+  const h = document.createElement('h3');
+  h.textContent = s.detail.title;
+  if (pinned) {
+    const t = document.createElement('span');
+    t.style.color = 'var(--ink-dim)'; t.style.fontSize = '11px'; t.style.marginLeft = '10px';
+    t.style.fontStyle = 'italic';
+    t.textContent = '· pinned · click another card to switch';
+    h.appendChild(t);
+  }
+  el.appendChild(h);
+
+  const m = document.createElement('div'); m.className = 'meta'; m.textContent = s.detail.meta;
+  el.appendChild(m);
+
+  // scenarios as chips
+  if (s.scenarios && s.scenarios.length) {
+    const wrap = document.createElement('div'); wrap.className = 'scenario-tags';
+    s.scenarios.forEach(k => {
+      const t = document.createElement('span'); t.className = 'tag'; t.textContent = SCENARIOS[k] || k;
+      wrap.appendChild(t);
+    });
+    el.appendChild(wrap);
+  }
+
+  if (s.detail.rows && s.detail.rows.length) {
+    const tbl = document.createElement('table');
+    s.detail.rows.forEach(r => {
+      const tr = document.createElement('tr');
+      const td1 = document.createElement('td'); td1.textContent = r[0]; tr.appendChild(td1);
+      const td2 = document.createElement('td'); td2.textContent = r[1]; tr.appendChild(td2);
+      tbl.appendChild(tr);
+    });
+    el.appendChild(tbl);
+  }
+
+  if (s.detail.sections) {
+    s.detail.sections.forEach(sec => {
+      const div = document.createElement('div'); div.className = 'section';
+      if (sec.heading) {
+        const h4 = document.createElement('h4'); h4.textContent = sec.heading; div.appendChild(h4);
+      }
+      if (sec.rows) {
+        const tbl = document.createElement('table');
+        sec.rows.forEach(r => {
+          const tr = document.createElement('tr');
+          const td1 = document.createElement('td'); td1.textContent = r[0]; tr.appendChild(td1);
+          const td2 = document.createElement('td'); td2.textContent = r[1]; tr.appendChild(td2);
+          tbl.appendChild(tr);
+        });
+        div.appendChild(tbl);
+      }
+      if (sec.code) {
+        const pre = document.createElement('pre'); pre.className = 'code'; pre.textContent = sec.code;
+        div.appendChild(pre);
+      }
+      el.appendChild(div);
+    });
+  }
+}
+
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.card') || e.target.closest('.detail') || e.target.closest('nav')) return;
+  pinnedId = null;
+  document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
+});
+
+renderNav(null);
+renderCatalog(null);
+
+</script>
+</body>
+</html>
