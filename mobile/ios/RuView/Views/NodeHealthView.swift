@@ -58,7 +58,7 @@ struct NodeHealthView: View {
     /// so it's rostered here from the view model's live radar state.
     private var ld2450Online: Bool { viewModel.ld2450Reachable }
     private var ld2410Online: Bool { viewModel.ld2410Reachable }
-    private var micOnline: Bool { viewModel.micReachable }
+    private var micOnline: Bool { viewModel.audioReachable && viewModel.audioReading?.stream == "up" }
 
     /// Direct-poll nodes online (LD2450 + LD2410 + INMP441 mic).
     private var directOnline: Int {
@@ -158,8 +158,10 @@ struct NodeHealthView: View {
                 LD2410NodeCard(reachable: viewModel.ld2410Reachable,
                                reading: viewModel.ld2410Reading,
                                mac: "E0:72:A1:D6:03:DC")
-                MicNodeCard(reachable: viewModel.micReachable,
-                            reading: viewModel.micReading,
+                // Mic node is now the raw-audio streamer (no ESPHome HTTP); its
+                // health = the Pi audio pipeline is receiving the stream.
+                MicNodeCard(reachable: viewModel.audioReachable && viewModel.audioReading?.stream == "up",
+                            reading: viewModel.audioReading.map { MicReading(leqDb: $0.levelDb, peakDb: nil, timestamp: $0.timestamp) },
                             mac: "E0:72:A1:FC:C8:7C")
                 ForEach(expectedRoster) { expected in
                     if let active = activeNode(for: expected) {
