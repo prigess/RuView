@@ -231,15 +231,15 @@ final class LD2450Client: ObservableObject {
     private let maxRangeMeters: Double = 6.0
     private let reachableMaxFailures: Int = 3
 
-    // Count stabilisation (mirrors the server bridge). Two tracks closer than
-    // `desplitMeters` are one person the radar split in the near field; a raised
-    // count must persist `countPersist` polls before we report it (kills 1→2→1
-    // flicker), while drops apply immediately so walk-out stays fast.
+    // Count stabilisation. Two tracks closer than `desplitMeters` are one person
+    // the radar split in the near field → merged. Then a HOLD: mmWave is
+    // motion-based and intermittently loses a motionless person, so once we see
+    // ≥1 we hold the count through dropouts for `countHoldSec` before clearing.
+    // Raise is immediate (responsive); a real walk-out clears after the hold.
     private let desplitMeters: Double = 0.7
-    private let countPersist: Int = 3
-    private var lastStableCount: Int = 0
-    private var countCandidate: Int = 0
-    private var countStreak: Int = 0
+    private let countHoldSec: TimeInterval = 5.0
+    private var heldCount: Int = 0
+    private var heldCountAt: Date = .distantPast
 
     /// Collapse targets closer than `desplitMeters` into one cluster.
     private func desplitCount(_ ts: [LD2450Target]) -> Int {
@@ -255,15 +255,21 @@ final class LD2450Client: ObservableObject {
         return clusters
     }
 
-    /// Persistence + hysteresis gate over the de-split count.
-    private func stabilizedCount(_ raw: Int) -> Int {
-        if raw <= lastStableCount {
-            lastStableCount = raw; countCandidate = raw; countStreak = 0
-        } else {
-            if raw == countCandidate { countStreak += 1 } else { countCandidate = raw; countStreak = 1 }
-            if countStreak >= countPersist { lastStableCount = raw }
+    /// Hold the de-split count through the LD2450's still-person dropouts:
+    /// raise immediately, but keep a detected count for `countHoldSec` after the
+    /// raw reading drops to 0 (a motionless person the radar momentarily lost).
+    private func stabilizedCount(_ desplit: Int) -> Int {
+        let now = Date()
+        if desplit >= 1 {
+            heldCount = desplit
+            heldCountAt = now
+            return desplit
         }
-        return lastStableCount
+        if now.timeIntervalSince(heldCountAt) < countHoldSec {
+            return heldCount           // dropout — hold last count, person likely still there
+        }
+        heldCount = 0
+        return 0
     }
 
     init() {

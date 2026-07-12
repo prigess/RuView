@@ -311,8 +311,8 @@ struct OccupancyView: View {
                 }
                 Text(viewModel.displayPresence
                      ? viewModel.stickyMotionLevelDisplay
-                     : "Quiet")
-                    .font(.title2).fontWeight(.semibold)
+                     : "No one here")   // occupancy state, not audio — avoids clashing
+                    .font(.title2).fontWeight(.semibold)   // with the Sound ID card ("Speech")
                     .foregroundColor(.healthText)
             }
 
