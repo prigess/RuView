@@ -327,37 +327,36 @@ const sensors = [
 },
 {
   group: 'Presence & motion (radar / IR / TOF)',
-  name: 'HLK-LD2410C', sub: '24 GHz mmWave · presence + distance · UART',
+  name: 'HLK-LD2410C', sub: '24 GHz · presence + distance · ★ IMPLEMENTED (presence)',
   iface: 'UART', cost: '$4', ease: 'med', consent: 'default',
-  desc: 'Hi-Link 24 GHz FMCW radar. Detects presence + distance + motion vs static. Tunable sensitivity per range gate via UART config tool. Cheaper sibling of the LD2410B.',
+  desc: 'IMPLEMENTED & LIVE — the reliable presence source. Hi-Link 24 GHz FMCW radar on an ESP32-S3 (ESPHome). In the fusion ladder it OWNS presence ("is anyone here + entry/exit"); it also feeds the audio pipeline\'s radar_present, so speech flips conversation ⇄ TV. The most dependable sensor in the kit.',
   scenarios: ['PRES', 'IN_OUT'],
   detail: {
-    title: 'HLK-LD2410C — 24 GHz presence radar',
-    meta: 'Hi-Link 24 GHz FMCW radar · 5 V power · 256000-baud UART · ESPHome native support',
+    title: 'HLK-LD2410C — 24 GHz presence radar (live)',
+    meta: 'Hi-Link 24 GHz FMCW · 5 V · 256000 UART · ESPHome ld2410 · the presence owner in RuView fusion',
     rows: [
-      ['Range',          'Up to 6 m presence · 5 m motion · ±60° cone'],
-      ['Modes',          'Reports separately: "moving target", "still target", "any presence"'],
-      ['Configurable',   'Per-gate (0.75 m bins) sensitivity · hold time after target loss (1-300 s!) — tunable from UART'],
-      ['Hold time',      'KEY ADVANTAGE: presence hold-after-target-lost is configurable (default 5 s, tunable 1-300 s) — fixes the MR60BHA2 weakness'],
-      ['Interface',      'TX/RX UART @ 256000 8N1 · 2 wires + power · no SPI/I²C complexity'],
-      ['Library',        'ESPHome: ld2410 component (mature, well-supported)'],
+      ['Status',         'LIVE — presence owner; app Occupancy presence + the audio daemon\'s radar_present both come from this'],
+      ['Wiring (verified)', 'radar TX→GPIO12, RX→GPIO11, 256000 8N1 · VCC needs real 5V (YD-clone: bridge the IN-OUT jumper)'],
+      ['Hold time',      'delayed_off 3 s in firmware (tunable 1-300 s) — configurable presence hold, the MR60BHA2\'s weakness fixed'],
+      ['Modes',          'Separate moving / still / any-presence + detection_distance (clean approach curve, e.g. 407→55→0 cm)'],
+      ['Library',        'ESPHome: ld2410 component (mature, native)'],
     ],
     sections: [
       {
-        heading: 'RuView role — the radar we WISH the MR60BHA2 was',
+        heading: 'RuView role — the presence owner',
         rows: [
-          ['Problem solved', 'Tunable hold-time: set to 2-3 s and the "Empty" transition is 2-3 s, not 4-14 s'],
-          ['No vitals',      'Cannot do HR/BR — only presence + distance. Best paired with MR60BHA2 (vitals when present)'],
-          ['Connector',      'Standard 4-pin 1.25 mm JST · we have the LD2410B/C boards but failed to source the cables in prior runs'],
-          ['Status today',   'Worth retrying with a proper cable + Qwiic-to-JST adapter · the tunable hold time alone justifies it'],
+          ['Problem solved', 'Reliable "someone is here" + entry/exit; held presence to ~1.2 m in testing where the LD2450 needed closer range'],
+          ['No vitals',      'Presence + distance only, no HR/BR'],
+          ['Fusion role',    'Per the ladder, presence = LD2410C (LD2450 owns count, C6 owns vitals). Its presence gates the audio fusion'],
+          ['Range caveat',   'At the edge (~2 m+) a still person can read weak (~33% energy, "Clear"/unconfirmed) — pair with the LD2450 for count/position'],
         ]
       },
       {
-        heading: 'ESPHome wiring',
+        heading: 'ESPHome wiring (as deployed)',
         code:
 `uart:
-  tx_pin: GPIO17
-  rx_pin: GPIO16
+  tx_pin: GPIO11        # ESP TX → radar RX
+  rx_pin: GPIO12        # ESP RX ← radar TX
   baud_rate: 256000
 
 ld2410:
@@ -366,16 +365,12 @@ ld2410:
 binary_sensor:
   - platform: ld2410
     has_target:
-      name: "LD2410 Presence"
-    has_moving_target:
-      name: "Moving target"
-    has_still_target:
-      name: "Still target"
+      name: "Person Present"
+      filters: [ delayed_off: 3s ]
 
 sensor:
   - platform: ld2410
-    detection_distance:
-      name: "Detection distance"`
+    detection_distance: { name: "Detection Distance" }`
       }
     ]
   }
@@ -503,6 +498,43 @@ sensor:
 },
 
 /* ───────── VITALS (radar-supplemental + skin contact, opt-in) ───────── */
+{
+  group: 'Vitals (non-contact preferred; contact opt-in)',
+  name: 'ESP32-C6 + Seeed MR60BHA2', sub: '60 GHz vitals radar · ▲ IMPLEMENTED — on hold',
+  iface: 'UART', cost: '$15', ease: 'med', consent: 'optin',
+  desc: 'IMPLEMENTED but PULLED FROM THE DEMO. Seeed 60 GHz FMCW radar on an ESP32-C6 (ESPHome) — the only non-contact heart-rate / breathing-rate source. Integrated end-to-end (MQTT → Pi c6_radar_bridge → ADR-039 vitals packet → server → app), but it fabricates a phantom heartbeat off near-field static clutter, so it is currently disconnected from the mix until it can be placed with a clear near field.',
+  scenarios: ['HRBR', 'PRES', 'SLEEP'],
+  detail: {
+    title: 'ESP32-C6 + MR60BHA2 — 60 GHz vitals radar (integrated; on hold)',
+    meta: 'Seeed MR60BHA2 60 GHz FMCW · HR + BR + presence + distance · ESP32-C6 · ESPHome → Pi bridge → server → app',
+    rows: [
+      ['Status',        'ON HOLD — bridge disabled server-side (c6-radar.conf) + not started in the app, to kill the phantom vitals'],
+      ['Outputs',       'Heart rate, breathing rate, presence, target distance, target count — the only HR/BR source in the kit'],
+      ['Integration',   'Fully wired: ESPHome MQTT → c6_radar_bridge on the Pi → 32-byte ADR-039 vitals packet (UDP) → sensing-server → app'],
+      ['Range',         'Vitals need a still subject within ~1.5-2.5 m, facing the chest — short and fussy'],
+      ['Library',       'ESPHome (minimal MQTT block; richer configs crashed the C6 on OTA)'],
+    ],
+    sections: [
+      {
+        heading: '⚠ Why it is on hold — the phantom heartbeat',
+        rows: [
+          ['The failure',   'Aimed across a room it locks onto a static object in its near field (observed 0.8-0.9 m) and MANUFACTURES a "heartbeat" (~74-100 bpm) off it — presence + HR with nobody there'],
+          ['The tell',      'target_distance pins dead-constant (e.g. 80.36 cm × 34 in a row); a real person, even still, jitters with breathing/sway'],
+          ['Server guard',  'The bridge\'s plausibility/clutter gate already rejects some of it (edge-vitals goes null); a distance-variance clutter gate is staged in the bridge'],
+          ['To bring back',  'Clear the first ~1.5 m of its beam (nothing static in front), aim it at a bed/chair rest spot within ~2 m — then it is the one sensor built to read a still, breathing person'],
+        ]
+      },
+      {
+        heading: 'RuView role — non-contact vitals (when placed right)',
+        rows: [
+          ['Best use',      'Bedside (headboard) or chair-side — passive HR/BR on a resting elder; sleep/breathing trends'],
+          ['Pairing',       'LD2410C owns presence, LD2450 owns count/position; the C6 adds vitals on top when someone is at rest'],
+          ['Fall assist',   'Its motion-energy channel + a sudden-still transition feeds the (staged) fall heuristic'],
+        ]
+      }
+    ]
+  }
+},
 {
   group: 'Vitals (non-contact preferred; contact opt-in)',
   name: 'MAX30102', sub: 'PPG + SpO₂ · finger contact · Qwiic',
