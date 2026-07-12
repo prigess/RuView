@@ -234,6 +234,9 @@ struct OccupancyView: View {
         case "tv_or_media", "media_playing": return "TV / media"
         case "distress_present": return "Distress — someone present"
         case "distress_sound": return "Distress sound"
+        case "agitation_present": return "Agitation — someone present"
+        case "agitation_sound": return "Agitation"
+        case "positive_mood": return "Positive mood"
         case "alarm_sound": return "Alarm"
         case "activity": return "Activity"
         case "quiet": return "Quiet"
@@ -244,8 +247,11 @@ struct OccupancyView: View {
         switch f {
         case "conversation": return "Speech + someone in the room"
         case "tv_or_media", "media_playing": return "Speech, but no one detected — likely a screen"
-        case "distress_present": return "Crying/shout with a person present — check in"
+        case "distress_present": return "Crying/whimper with a person present — check in"
         case "distress_sound": return "Distress sound detected"
+        case "agitation_present": return "Shouting/yelling with a person present"
+        case "agitation_sound": return "Raised-voice sound detected"
+        case "positive_mood": return "Laughter detected"
         case "alarm_sound": return "Alarm / glass / impact"
         case "activity": return "Sound + presence"
         case "quiet": return present == true ? "Someone here, quiet" : "Room quiet"
@@ -254,7 +260,8 @@ struct OccupancyView: View {
     }
     private func fusedColor(_ f: String) -> Color {
         switch f {
-        case "distress_present", "distress_sound", "alarm_sound": return .red
+        case "distress_present", "distress_sound", "agitation_present", "agitation_sound", "alarm_sound": return .red
+        case "positive_mood": return .green
         case "conversation", "activity": return .steel
         default: return .healthSub
         }
@@ -262,6 +269,8 @@ struct OccupancyView: View {
     private func fusedIcon(_ f: String) -> String {
         switch f {
         case "distress_present", "distress_sound": return "exclamationmark.bubble.fill"
+        case "agitation_present", "agitation_sound": return "exclamationmark.triangle.fill"
+        case "positive_mood": return "face.smiling.fill"
         case "alarm_sound": return "bell.fill"
         case "conversation": return "bubble.left.and.bubble.right.fill"
         case "tv_or_media", "media_playing": return "tv.fill"

@@ -30,7 +30,7 @@ _buf = deque(maxlen=SAMPLE_RATE * 2)
 _lock = threading.Lock()
 _last_packet_at = [0.0]
 _state = {"ts": 0.0, "level_db": None, "active": False, "events": [],
-          "fused": "idle", "radar_present": None, "stream": "down"}
+          "fused": "idle", "emotion": "neutral", "radar_present": None, "stream": "down"}
 
 # ── YAMNet ──────────────────────────────────────────────────────────────────
 _interp = None; _labels = []; _in_idx = None; _out_idx = None; _in_len = 15600
@@ -87,8 +87,13 @@ def infer():
             "events": classify(arr)}
 
 # ── Fusion with radar telemetry ─────────────────────────────────────────────
+# Emotion mapped straight from YAMNet's existing 521 vocalization classes —
+# no custom model needed for overt vocalizations (only speech *prosody* would).
 DISTRESS = {"Crying, sobbing", "Baby cry, infant cry", "Whimper", "Wail, moan",
-            "Screaming", "Shout", "Yell", "Groan", "Gasp"}
+            "Groan", "Sigh", "Gasp"}
+ANGER    = {"Shout", "Bellow", "Yell", "Children shouting", "Screaming"}
+JOY      = {"Laughter", "Baby laughter", "Giggle", "Snicker", "Belly laugh",
+            "Chuckle, chortle"}
 SPEECH = {"Speech", "Conversation", "Narration, monologue", "Child speech, kid speaking"}
 MEDIA = {"Music", "Television", "Radio", "Musical instrument", "Singing"}
 ALARM = {"Glass", "Shatter", "Alarm", "Smoke detector, smoke alarm", "Thump, thud"}
@@ -116,6 +121,10 @@ def fuse(audio, present):
     # The cross-modal value: the same sound means different things given presence.
     if labels & DISTRESS:
         return "distress_present" if present else "distress_sound"
+    if labels & ANGER:
+        return "agitation_present" if present else "agitation_sound"
+    if labels & JOY:
+        return "positive_mood"
     if labels & ALARM:
         return "alarm_sound"
     if labels & SPEECH:
@@ -125,6 +134,14 @@ def fuse(audio, present):
     if audio["active"] and present:
         return "activity"
     return "quiet"
+
+# Coarse emotion label from the same YAMNet classes (independent of presence).
+def emotion(events):
+    labels = {e["label"] for e in events}
+    if labels & DISTRESS: return "distress"
+    if labels & ANGER:    return "anger"
+    if labels & JOY:      return "joy"
+    return "neutral"
 
 def infer_loop():
     while True:
@@ -138,6 +155,7 @@ def infer_loop():
             "events": audio["events"] if audio else [],
             "radar_present": present,
             "fused": fuse(audio, present),
+            "emotion": emotion(audio["events"]) if audio else "neutral",
             "stream": "up" if up else "down",
         })
         time.sleep(0.3)
