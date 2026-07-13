@@ -20,7 +20,7 @@ final class SensingViewModel: ObservableObject {
     /// pinned in the router. Stored in UserDefaults under "c6RadarHost"
     /// so a future settings screen can edit it without changing this class.
     private var c6RadarHost: String {
-        UserDefaults.standard.string(forKey: "c6RadarHost") ?? "192.168.8.192"
+        UserDefaults.standard.string(forKey: "c6RadarHost") ?? "192.168.7.145"
     }
 
     // MARK: - LD2450 24GHz tracking radar (direct ESPHome poller)
@@ -376,12 +376,13 @@ final class SensingViewModel: ObservableObject {
     func connect(host: String) {
         client.connect(host: host)
         startPolling()
-        // C6 (MR60BHA2) intentionally NOT started: it fabricates presence + a
-        // phantom heartbeat off near-field static clutter, which poisons the
-        // fused count/vitals. Removed from the mix until it can be placed with a
-        // clear near field. Every fusion path is gated on `radarReachable`, so
-        // leaving it unstarted (radarReachable stays false) cleanly excludes it.
-        // radarClient.start(host: c6RadarHost)
+        // C6 (MR60BHA2) is a bedside VITALS sensor only. It never votes on
+        // presence or count (that's LD2410C/LD2450) — it fabricates presence off
+        // near-field static clutter. Its heart-rate/breathing are surfaced only
+        // when the reading passes the clutter trust gate (C6RadarClient
+        // .evaluateTrust); a phantom off furniture is rejected as "static
+        // clutter" instead of shown as a fake pulse.
+        radarClient.start(host: c6RadarHost)
         ld2450Client.start(host: ld2450Host)
         ld2410Client.start(host: ld2410Host)
         // The mic node was reflashed to the raw-audio streamer (no ESPHome HTTP),
@@ -506,56 +507,59 @@ final class SensingViewModel: ObservableObject {
     var radarCountIsLive: Bool {
         (ld2450Reachable && ld2450Reading != nil)
             || (ld2410Reachable && ld2410Reading != nil)
-            || (radarReachable && radarReading != nil)
     }
 
     // MARK: - Sensor fusion
     //
-    // Stitch the three independent radars into one coherent room picture:
+    // Stitch the radars into one coherent room picture. Each sensor is trusted
+    // ONLY for what it does well:
     //   • LD2450 gives the authoritative multi-target count + position.
-    //   • LD2410C + C6 are single-presence — they can't count, but they keep
-    //     the room "occupied" when the LD2450 momentarily drops a still person.
-    //   • Vitals come from the live C6 when reachable, else the server snapshot.
+    //   • LD2410C keeps the room "occupied" when the LD2450 drops a still person.
+    //   • C6 (60 GHz) contributes VITALS ONLY — never presence or count. It's a
+    //     bedside sensor that fabricates presence off static clutter, so letting
+    //     it vote on occupancy is exactly what created the phantom count. Its
+    //     vitals are gated behind the clutter trust check (vitalsTrusted).
 
     /// Any live sensor currently sees a person. The LD2450 only contributes
     /// once its antenna is attached (otherwise its ghost targets would fake
-    /// presence in an empty room).
+    /// presence in an empty room). The C6 is deliberately excluded — see above.
     var anyPresenceEvidence: Bool {
         if ld2450AntennaConnected, ld2450Reachable, (ld2450Reading?.targetCount ?? 0) > 0 { return true }
         if ld2410Reachable, ld2410Reading?.personPresent == true { return true }
-        if radarReachable, radarReading?.personPresent == true { return true }
         return false
     }
 
     /// Fused occupant count. Trust the LD2450's true multi-target count only
     /// when its antenna is attached; until then it hallucinates ghosts, so the
-    /// count comes from the single-occupancy presence sensors (LD2410C + C6),
-    /// which can only report 0 or 1. Server count is the last-resort fallback.
+    /// count comes from the single-occupancy LD2410C (0 or 1). The C6 never
+    /// contributes to the count. Server count is the last-resort fallback.
     var fusedOccupantCount: Int {
         if ld2450AntennaConnected, ld2450Reachable, let r = ld2450Reading {
             if r.targetCount > 0 { return r.targetCount }
             return anyPresenceEvidence ? 1 : 0
         }
-        // Direct presence sensors are single-occupancy: 0 or 1, no ghosts.
-        if ld2410Reachable || radarReachable {
+        // LD2410C is single-occupancy: 0 or 1, no ghosts.
+        if ld2410Reachable {
             return anyPresenceEvidence ? 1 : 0
         }
         // No direct sensors reachable — fall back to the server's count.
         return personCount
     }
 
-    /// Live heart rate — prefer the direct C6 radar over the (possibly stale)
-    /// server-derived value.
+    /// Live heart rate — from the C6 only when its reading passes the clutter
+    /// trust gate; otherwise the (possibly stale) server-derived value.
     var fusedHeartRate: Int? {
-        if radarReachable, let hr = radarReading?.heartRateBpm, hr > 0 {
+        if radarReachable, radarReading?.vitalsTrusted == true,
+           let hr = radarReading?.heartRateBpm, hr > 0 {
             return Int(hr.rounded())
         }
         return displayHeartRate
     }
 
-    /// Live breathing rate — C6-first, server fallback.
+    /// Live breathing rate — C6 when trusted, else server fallback.
     var fusedBreathingRate: Int? {
-        if radarReachable, let br = radarReading?.breathingRateBpm, br > 0 {
+        if radarReachable, radarReading?.vitalsTrusted == true,
+           let br = radarReading?.breathingRateBpm, br > 0 {
             return Int(br.rounded())
         }
         return displayBreathingRate
@@ -640,15 +644,16 @@ final class SensingViewModel: ObservableObject {
     // direct sensors, the same source Node Health uses). ──────────────────────
     /// Someone is present per the radars (same source as the count hero).
     var fusedPresent: Bool { anyPresenceEvidence }
-    /// Live direct-poll nodes (LD2450 + LD2410C + mic audio stream).
+    /// Live direct-poll nodes (LD2450 + LD2410C + mic audio stream + C6 vitals).
     var directActiveNodes: Int {
         (ld2450Reachable ? 1 : 0)
             + (ld2410Reachable ? 1 : 0)
             + ((audioReachable && audioReading?.stream == "up") ? 1 : 0)
+            + (radarReachable ? 1 : 0)
     }
     /// True when any direct sensor is delivering live data.
     var directDataLive: Bool {
-        ld2450Reachable || ld2410Reachable || (audioReachable && audioReading?.stream == "up")
+        ld2450Reachable || ld2410Reachable || (audioReachable && audioReading?.stream == "up") || radarReachable
     }
 
     var isDemoMode: Bool {

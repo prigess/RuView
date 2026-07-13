@@ -59,15 +59,16 @@ struct NodeHealthView: View {
     private var ld2450Online: Bool { viewModel.ld2450Reachable }
     private var ld2410Online: Bool { viewModel.ld2410Reachable }
     private var micOnline: Bool { viewModel.audioReachable && viewModel.audioReading?.stream == "up" }
+    private var c6Online: Bool { viewModel.radarReachable }
 
-    /// Direct-poll nodes online (LD2450 + LD2410 + INMP441 mic).
+    /// Direct-poll nodes online (LD2450 + LD2410 + INMP441 mic + C6 vitals).
     private var directOnline: Int {
-        (ld2450Online ? 1 : 0) + (ld2410Online ? 1 : 0) + (micOnline ? 1 : 0)
+        (ld2450Online ? 1 : 0) + (ld2410Online ? 1 : 0) + (micOnline ? 1 : 0) + (c6Online ? 1 : 0)
     }
 
-    /// Total expected positions = server-rostered dome nodes + the 3 direct
-    /// nodes (LD2450 tracking + LD2410C presence + INMP441 audio).
-    private var totalExpected: Int { expectedRoster.count + 3 }
+    /// Total expected positions = server-rostered dome nodes + the 4 direct
+    /// nodes (LD2450 tracking + LD2410C presence + INMP441 audio + C6 vitals).
+    private var totalExpected: Int { expectedRoster.count + 4 }
 
     private var onlineCount: Int {
         expectedRoster.filter { activeNode(for: $0) != nil }.count + directOnline
@@ -163,6 +164,10 @@ struct NodeHealthView: View {
                 MicNodeCard(reachable: viewModel.audioReachable && viewModel.audioReading?.stream == "up",
                             reading: viewModel.audioReading.map { MicReading(leqDb: $0.levelDb, peakDb: nil, timestamp: $0.timestamp) },
                             mac: "E0:72:A1:FC:C8:7C")
+                // C6 (MR60BHA2) 60 GHz vitals radar — direct-poll, vitals-only.
+                C6NodeCard(reachable: viewModel.radarReachable,
+                           reading: viewModel.radarReading,
+                           mac: "58:E6:C5:13:5A:9C")
                 ForEach(expectedRoster) { expected in
                     if let active = activeNode(for: expected) {
                         NodeCard(
@@ -758,6 +763,122 @@ private struct LD2410NodeCard: View {
         HStack(spacing: 5) {
             LivePulseDot(color: .lungTeal, size: 6, active: true)
             Text("Live").font(.caption2).foregroundColor(.lungTeal)
+        }
+    }
+
+    private var offlineBadge: some View {
+        HStack(spacing: 3) {
+            Circle().fill(Color.healthSub).frame(width: 7, height: 7)
+            Text("Offline").font(.caption2).fontWeight(.medium)
+        }
+        .foregroundColor(.healthSub)
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(Color.healthSub.opacity(0.10)).cornerRadius(6)
+    }
+}
+
+// MARK: - C6NodeCard
+//
+// ESP32-C6 + Seeed MR60BHA2 60 GHz vitals radar. Direct-poll sourced. Shows
+// heart / breathing only when the clutter trust gate passed; otherwise shows
+// the gate's status so the card never fakes a pulse.
+
+private struct C6NodeCard: View {
+    let reachable: Bool
+    let reading: C6RadarReading?
+    let mac: String
+
+    private var trusted: Bool { reading?.vitalsTrusted ?? false }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("C6 · MR60BHA2")
+                        .font(.callout).fontWeight(.semibold)
+                        .foregroundColor(reachable ? .healthText : .healthSub)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                    Text("VITALS")
+                        .font(.system(size: 9, weight: .semibold)).tracking(1.0)
+                        .foregroundColor(.heartRed)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(Color.heartRed.opacity(0.12)).cornerRadius(4)
+                        .lineLimit(1)
+                    Text(mac)
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(.healthSub).tracking(0.3)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                }
+                Spacer()
+                if reachable { activeDot } else { offlineBadge }
+            }
+
+            HStack(spacing: 4) {
+                Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: 9, weight: .semibold))
+                Text("60 GHz Radar").font(.system(size: 10, weight: .medium))
+            }
+            .foregroundColor(.heartRed)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Color.heartRed.opacity(0.12)).cornerRadius(4)
+
+            if reachable, let r = reading {
+                if trusted, let hr = r.heartRateBpm, hr >= 40 {
+                    HStack(alignment: .bottom, spacing: 8) {
+                        Text("\(Int(hr.rounded()))")
+                            .font(.system(size: 34, weight: .bold, design: .rounded))
+                            .foregroundColor(.healthText).monospacedDigit()
+                            .contentTransition(.numericText())
+                        Text("BPM").font(.caption).foregroundColor(.healthSub)
+                    }
+                    Divider()
+                    HStack(spacing: 6) {
+                        Image(systemName: "lungs.fill").font(.caption2).foregroundColor(.lungTeal)
+                        if let br = r.breathingRateBpm, br >= 6, br <= 34 {
+                            Text("\(Int(br.rounded())) br/min").font(.caption).foregroundColor(.healthSub).monospacedDigit()
+                        } else {
+                            Text("breath —").font(.caption).foregroundColor(.healthSub)
+                        }
+                    }
+                } else {
+                    Text("—")
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .foregroundColor(.healthSub)
+                    Divider()
+                    HStack(spacing: 6) {
+                        Circle().fill(Color.orange.opacity(0.7)).frame(width: 8, height: 8)
+                        Text(r.rejectReason ?? "No subject")
+                            .font(.caption2).foregroundColor(.healthSub)
+                            .lineLimit(2).minimumScaleFactor(0.8)
+                    }
+                }
+            } else {
+                Spacer(minLength: 0)
+                VStack(spacing: 6) {
+                    Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                        .font(.system(size: 28)).foregroundColor(.steelLight)
+                    Text("Awaiting connection")
+                        .font(.caption2).foregroundColor(.healthSub)
+                }
+                .frame(maxWidth: .infinity)
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(14)
+        .frame(minHeight: 200, alignment: .top)
+        .background(Color.surface)
+        .cornerRadius(14)
+        .shadow(color: Color.steel.opacity(reachable ? 0.10 : 0.05), radius: 6, x: 0, y: 2)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(reachable ? Color.heartRed.opacity(0.30) : Color.healthSub.opacity(0.25),
+                        lineWidth: 1.5)
+        )
+    }
+
+    private var activeDot: some View {
+        HStack(spacing: 5) {
+            LivePulseDot(color: .heartRed, size: 6, active: true)
+            Text("Live").font(.caption2).foregroundColor(.heartRed)
         }
     }
 

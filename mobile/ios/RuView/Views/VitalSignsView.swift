@@ -144,9 +144,16 @@ struct VitalSignsView: View {
     private var radarCard: some View {
         let r = viewModel.radarReading
         let present = r?.personPresent ?? false
-        let hr = r?.heartRateBpm
-        let br = r?.breathingRateBpm
+        let trusted = r?.vitalsTrusted ?? false
         let dist = r?.targetDistanceCm
+        // Only show the pulse/breath numbers when the reading passed the clutter
+        // gate — otherwise the MR60BHA2's phantom would read as a real vital.
+        // Clamp to sane bands too, so a held-trust moment where BR briefly loses
+        // lock shows "–" rather than a nonsense 2–3 bpm.
+        let hrRaw = r?.heartRateBpm ?? 0
+        let brRaw = r?.breathingRateBpm ?? 0
+        let hr: Double? = (trusted && hrRaw >= 40 && hrRaw <= 130) ? hrRaw : nil
+        let br: Double? = (trusted && brRaw >= 6 && brRaw <= 34) ? brRaw : nil
 
         return VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
@@ -157,7 +164,7 @@ struct VitalSignsView: View {
                     .font(.subheadline).fontWeight(.semibold)
                     .foregroundColor(.healthText)
                 Spacer()
-                presenceChip(present: present)
+                vitalsStatusChip(trusted: trusted, present: present)
             }
 
             HStack(spacing: 14) {
@@ -175,6 +182,22 @@ struct VitalSignsView: View {
                 )
             }
 
+            // When the gate rejected the reading, say why (placement guidance).
+            if !trusted, let reason = r?.rejectReason {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                    Text(reason)
+                        .font(.caption)
+                        .multilineTextAlignment(.leading)
+                }
+                .foregroundColor(.orange)
+                .padding(.horizontal, 10).padding(.vertical, 7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.10))
+                .cornerRadius(8)
+            }
+
             if let r {
                 Text("Updated \(ageString(r.timestamp)) ago")
                     .font(.caption2)
@@ -182,6 +205,25 @@ struct VitalSignsView: View {
             }
         }
         .ruCard()
+    }
+
+    /// Status chip: green "Live vitals" only when the clutter gate passed;
+    /// amber "Checking…" when a target is present but not yet trusted; grey when
+    /// no target at all.
+    private func vitalsStatusChip(trusted: Bool, present: Bool) -> some View {
+        let (label, color): (String, Color) =
+            trusted ? ("Live vitals", .green)
+            : present ? ("Checking…", .orange)
+            : ("No target", .healthSub)
+        return HStack(spacing: 4) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text(label)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(color)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .background(color.opacity(0.10))
+        .cornerRadius(6)
     }
 
     private func presenceChip(present: Bool) -> some View {

@@ -10,6 +10,14 @@ struct C6RadarReading {
     let wifiRssiDbm: Double?
     let timestamp: Date
 
+    // Clutter gate (see C6RadarClient.evaluateTrust). The MR60BHA2 happily
+    // reports a rock-steady "heartbeat" off a static object in its near field
+    // (a chair, a wall reflection) — that's the phantom that got the C6 pulled.
+    // `vitalsTrusted` is true only when the reading looks like a living subject;
+    // `rejectReason` explains why it doesn't, for the UI.
+    let vitalsTrusted: Bool
+    let rejectReason: String?
+
     var hasVitals: Bool {
         (heartRateBpm ?? 0) > 0 || (breathingRateBpm ?? 0) > 0
     }
@@ -44,6 +52,40 @@ final class C6RadarClient: ObservableObject {
     private var consecutiveFailures: Int = 0
     private let reachableMaxFailures: Int = 2
 
+    // MARK: - Clutter / trust gate
+    //
+    // The MR60BHA2 is a bedside/armchair vitals radar: it reads chest
+    // micro-motion reliably at ~0.4–1.5 m facing the torso, and NOTHING past
+    // that. Point it at a room and it locks onto static clutter (furniture, a
+    // wall echo) and emits a dead-constant "heartbeat" — the phantom. We reject
+    // that in software so the app never shows a fabricated vital.
+    private struct VitalSample {
+        let hr: Double?
+        let br: Double?
+        let dist: Double?
+        let present: Bool
+        let t: Date
+    }
+    private var window: [VitalSample] = []
+    private let windowSpanSec: TimeInterval = 12   // rolling analysis window
+    private let minSamples = 6                      // ~9 s at 1.5 s cadence
+    // MR60BHA2 trustworthy near field (~0.2 m min per Seeed spec, up to ~2 m).
+    private let distMinCm = 18.0
+    private let distMaxCm = 200.0
+    // Physiological bands — anything outside is not a resting human.
+    private let hrBand = 40.0 ... 130.0
+    private let brBand = 6.0 ... 34.0
+    // A living subject's estimate always jitters breath-to-breath; static
+    // clutter pins a near-constant value. Require variation in HR *or* BR.
+    private let minHrStd = 0.4
+    private let minBrStd = 0.3
+    // A walking person (distance swinging wildly) isn't a resting vitals subject.
+    private let maxDistStd = 50.0
+    // Once trusted, stay trusted briefly so a momentary lock dropout (the
+    // MR60BHA2 routinely drops BR for a beat or two) doesn't flicker the UI.
+    private let trustHoldSec: TimeInterval = 3.0
+    private var trustedUntil: Date?
+
     init() {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = 3
@@ -72,6 +114,8 @@ final class C6RadarClient: ObservableObject {
         isReachable = false
         reading = nil
         consecutiveFailures = 0
+        window.removeAll()
+        trustedUntil = nil
     }
 
     // MARK: - Polling loop
@@ -112,14 +156,78 @@ final class C6RadarClient: ObservableObject {
         consecutiveFailures = 0
         isReachable = true
         lastErrorMessage = nil
+
+        let presentFlag = presentRes.bool ?? false
+        let (trusted, reason) = evaluateTrust(
+            hr: hrRes.value, br: brRes.value, dist: distRes.value, present: presentFlag
+        )
         reading = C6RadarReading(
             heartRateBpm:      hrRes.value,
             breathingRateBpm:  brRes.value,
             targetDistanceCm:  distRes.value,
-            personPresent:     presentRes.bool ?? false,
+            personPresent:     presentFlag,
             wifiRssiDbm:       rssiRes.value,
-            timestamp:         Date()
+            timestamp:         Date(),
+            vitalsTrusted:     trusted,
+            rejectReason:      reason
         )
+    }
+
+    /// Decide whether the current reading is a real living subject or clutter.
+    /// Appends to the rolling window, prunes it, then applies the gate.
+    private func evaluateTrust(hr: Double?, br: Double?, dist: Double?, present: Bool) -> (Bool, String?) {
+        let now = Date()
+        window.append(VitalSample(hr: hr, br: br, dist: dist, present: present, t: now))
+        window.removeAll { now.timeIntervalSince($0.t) > windowSpanSec }
+
+        let (trusted, reason) = rawTrust(hr: hr, br: br, dist: dist, present: present, now: now)
+        if trusted {
+            trustedUntil = now.addingTimeInterval(trustHoldSec)
+            return (true, nil)
+        }
+        // Hold a recent trust through a momentary dropout so the UI doesn't flicker.
+        if let until = trustedUntil, now < until, present {
+            return (true, nil)
+        }
+        trustedUntil = nil
+        return (false, reason)
+    }
+
+    /// The per-reading gate, before the trust-hold smoothing. HR is the anchor
+    /// (a valid, jittering heartbeat = a living subject); BR is advisory — the
+    /// MR60BHA2 routinely loses the breathing lock for a beat without the
+    /// subject leaving.
+    private func rawTrust(hr: Double?, br: Double?, dist: Double?, present: Bool, now: Date) -> (Bool, String?) {
+        guard present else { return (false, "No target in the beam") }
+        guard let hr, let dist else { return (false, "No vitals lock") }
+        guard dist >= distMinCm, dist <= distMaxCm else {
+            return (false, "Out of range — sit within 0.2–1.5 m, facing the sensor")
+        }
+        guard hrBand.contains(hr) else {
+            return (false, "Heart rate outside physiological range")
+        }
+        guard window.count >= minSamples else { return (false, "Warming up…") }
+
+        let hrs = window.compactMap { $0.hr }.filter { $0 > 0 }
+        let brs = window.compactMap { $0.br }.filter { $0 > 0 }
+        let dists = window.compactMap { $0.dist }.filter { $0 > 0 }
+
+        if Self.std(dists) > maxDistStd {
+            return (false, "Subject moving — not a resting reading")
+        }
+        // The clutter signature: a value frozen to a near-constant. A real
+        // subject varies in HR or BR; static clutter varies in neither.
+        if Self.std(hrs) < minHrStd, Self.std(brs) < minBrStd {
+            return (false, "Static clutter — no living subject")
+        }
+        return (true, nil)
+    }
+
+    private static func std(_ xs: [Double]) -> Double {
+        guard xs.count >= 2 else { return .infinity }  // too few samples ⇒ don't trust "flat"
+        let mean = xs.reduce(0, +) / Double(xs.count)
+        let variance = xs.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(xs.count)
+        return variance.squareRoot()
     }
 
     // MARK: - HTTP helpers
