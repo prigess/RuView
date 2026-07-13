@@ -12,7 +12,7 @@ struct ZoneMapView: View {
         ScrollView {
             VStack(spacing: 14) {
                 SectionHeader(title: "Room Layout",
-                              trailing: viewModel.isLiveDataFlowing ? "Live" : "Idle")
+                              trailing: viewModel.directDataLive ? "Live" : "Idle")
                 headerCard
                 SectionHeader(title: "Zones")
                 zoneGrid
@@ -44,7 +44,7 @@ struct ZoneMapView: View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
-                    LivePulseDot(color: .steel, size: 6, active: viewModel.isLiveDataFlowing)
+                    LivePulseDot(color: .steel, size: 6, active: viewModel.directDataLive)
                     Text("Room Overview").font(.headline).foregroundColor(.healthText)
                 }
                 Text("2×2 zone layout").font(.caption).foregroundColor(.healthSub)

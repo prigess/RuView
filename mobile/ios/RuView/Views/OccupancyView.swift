@@ -9,7 +9,7 @@ struct OccupancyView: View {
         ScrollView {
             VStack(spacing: 16) {
                 SectionHeader(title: "Current Status",
-                              trailing: (viewModel.isLiveDataFlowing || viewModel.radarCountIsLive) ? "Live · Updated just now" : "Waiting for data")
+                              trailing: (viewModel.directDataLive || viewModel.radarCountIsLive) ? "Live · Updated just now" : "Waiting for data")
                 personCountCard
                 ld2450TrackingSection
                 soundCard
@@ -44,7 +44,7 @@ struct OccupancyView: View {
 
             VStack(spacing: 10) {
                 HStack(spacing: 8) {
-                    let live = viewModel.isLiveDataFlowing || viewModel.radarCountIsLive
+                    let live = viewModel.directDataLive || viewModel.radarCountIsLive
                     LivePulseDot(color: .white, size: 7, active: live)
                     Text(live ? "LIVE" : "WAITING")
                         .font(.caption2).fontWeight(.bold)
@@ -452,13 +452,13 @@ struct OccupancyView: View {
             // While the room is held "Present", suppress brief "absent"
             // motion blips so the row doesn't flap between Active and Absent.
             detailRow(label: "Motion level",
-                      value: viewModel.stickyMotionLevelDisplay,
+                      value: viewModel.fusedMotionDisplay,
                       icon: "waveform")
             Divider().padding(.leading, 52)
             signalHealthRow(health: viewModel.signalHealth)
             Divider().padding(.leading, 52)
             detailRow(label: "Active nodes",
-                      value: "\(viewModel.snapshot?.nodeFeatures?.count ?? 0)",
+                      value: "\(viewModel.directActiveNodes)",
                       icon: "antenna.radiowaves.left.and.right")
         }
         .background(Color.surface)
@@ -532,7 +532,7 @@ struct OccupancyView: View {
             LivePulseDot(
                 color: viewModel.isDemoMode ? .orange : .steel,
                 size: 9,
-                active: viewModel.isLiveDataFlowing
+                active: viewModel.directDataLive || viewModel.isLiveDataFlowing
             )
             Text(viewModel.isDemoMode ? "Demo Mode — simulated data" : "Live — ESP32 sensor data")
                 .font(.callout).foregroundColor(.healthSub)

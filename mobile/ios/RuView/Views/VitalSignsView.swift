@@ -8,7 +8,9 @@ struct VitalSignsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                if viewModel.isMeasuring {
+                // Only show "measuring" when a vitals radar (C6) is actually
+                // connected — otherwise it's misleading (there's nothing to measure).
+                if viewModel.isMeasuring && viewModel.radarReachable {
                     measuringBanner
                 }
                 if let vitals = viewModel.snapshot?.vitalSigns {
@@ -285,9 +287,9 @@ struct VitalSignsView: View {
             Image(systemName: "heart.slash")
                 .font(.system(size: 48))
                 .foregroundColor(.steelLight)
-            Text("No vital sign data")
+            Text("No vitals sensor")
                 .font(.headline).foregroundColor(.healthSub)
-            Text("Connect to a sensing server to see heart rate and breathing data.")
+            Text("Heart-rate / breathing needs the 60 GHz radar (C6), which is offline. Presence, count, motion and sound are all live on the other tabs.")
                 .font(.callout).foregroundColor(.healthSub).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)

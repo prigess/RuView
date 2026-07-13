@@ -46,10 +46,12 @@ struct SkeletonView: View {
     /// when the count is positive but coordinates momentarily read zero (which
     /// happens at very close range) — so the skeleton never blinks out.
     private var radarFigures: [LD2450Target] {
-        guard viewModel.ld2450Reachable else { return [] }
-        let targets = viewModel.ld2450Reading?.targets ?? []
+        let targets = viewModel.ld2450Reachable ? (viewModel.ld2450Reading?.targets ?? []) : []
         if !targets.isEmpty { return targets }
-        if (viewModel.ld2450Reading?.targetCount ?? 0) > 0 {
+        // Present per ANY radar (e.g. the LD2410C sees someone the LD2450 can't
+        // localize) → a centered figure, so the skeleton matches the Occupancy
+        // count instead of blinking out.
+        if viewModel.radarOccupantCount > 0 {
             return [LD2450Target(id: 1, x: 0, y: 1200)]
         }
         return []
@@ -63,7 +65,7 @@ struct SkeletonView: View {
     }
 
     private var personsShown: Int {
-        serverPersons.isEmpty ? radarFigures.count : serverPersons.count
+        serverPersons.isEmpty ? viewModel.radarOccupantCount : serverPersons.count
     }
 
     private func statItem(label: String, value: String) -> some View {
@@ -202,9 +204,9 @@ struct SkeletonView: View {
             Image(systemName: "figure.stand")
                 .font(.system(size: 48))
                 .foregroundColor(Color.steelLight.opacity(0.5))
-            Text(viewModel.isConnected ? "No persons detected" : "Not connected")
+            Text(viewModel.directDataLive ? "No persons detected" : "Not connected")
                 .font(.callout).foregroundColor(Color.steelLight.opacity(0.85))
-            if viewModel.isConnected {
+            if viewModel.directDataLive {
                 HStack(spacing: 6) {
                     LivePulseDot(color: .steelLight, size: 6, active: viewModel.isLiveDataFlowing)
                     Text("Scanning room…")

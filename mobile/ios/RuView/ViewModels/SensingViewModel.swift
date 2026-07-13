@@ -247,6 +247,21 @@ final class SensingViewModel: ObservableObject {
         audioClient.$isReachable
             .receive(on: RunLoop.main)
             .assign(to: &$audioReachable)
+        // Feed the presence state-machine from the DIRECT radars — the server
+        // snapshot is starved (tick 0), so displayPresence/time-in-state/timeline
+        // must be driven by the LD2410C/LD2450 directly, same as the count hero.
+        Publishers.Merge(
+            ld2410Client.$reading.map { _ in () },
+            ld2450Client.$reading.map { _ in () }
+        )
+        .receive(on: RunLoop.main)
+        .sink { [weak self] in
+            guard let self else { return }
+            let ml = self.fusedMotionState == "moving" ? "present_moving"
+                   : self.fusedMotionState == "still" ? "present_still" : "absent"
+            self.updateStablePresence(presence: self.anyPresenceEvidence, motionLevel: ml)
+        }
+        .store(in: &cancellables)
     }
 
     private func bindMicPublishers() {
@@ -620,6 +635,22 @@ final class SensingViewModel: ObservableObject {
         }
     }
 
+    // ── Direct-sensor truth (the server snapshot is starved — C6 bridge off,
+    // LD2450/LD2410/mic not server-ingested — so every panel must read the
+    // direct sensors, the same source Node Health uses). ──────────────────────
+    /// Someone is present per the radars (same source as the count hero).
+    var fusedPresent: Bool { anyPresenceEvidence }
+    /// Live direct-poll nodes (LD2450 + LD2410C + mic audio stream).
+    var directActiveNodes: Int {
+        (ld2450Reachable ? 1 : 0)
+            + (ld2410Reachable ? 1 : 0)
+            + ((audioReachable && audioReading?.stream == "up") ? 1 : 0)
+    }
+    /// True when any direct sensor is delivering live data.
+    var directDataLive: Bool {
+        ld2450Reachable || ld2410Reachable || (audioReachable && audioReading?.stream == "up")
+    }
+
     var isDemoMode: Bool {
         snapshot?.source == "simulate"
     }
@@ -671,6 +702,9 @@ final class SensingViewModel: ObservableObject {
 
     /// Derived from existing telemetry — no new wiring needed.
     var signalHealth: SignalHealth {
+        // Live direct-sensor data is the real "healthy" signal now that the
+        // server snapshot is starved — trust it first.
+        if directDataLive { return .green }
         if !isConnected || connectionError != nil { return .red }
         if isSignalLost                            { return .red }
         if isDemoMode || !isLiveDataFlowing        { return .yellow }
@@ -882,7 +916,9 @@ final class SensingViewModel: ObservableObject {
     private func updateStablePresence(presence: Bool?, motionLevel: String?) {
         let pres = presence ?? false
         let motion = motionLevel ?? "absent"
-        let hasEvidence = pres || motion != "absent"
+        // Include the direct radars so the server path can't clear presence
+        // while a sensor still sees someone (server is starved).
+        let hasEvidence = pres || motion != "absent" || anyPresenceEvidence
 
         // Record the transition + sample for the timeline strip.
         let beforeDisplay = displayPresence

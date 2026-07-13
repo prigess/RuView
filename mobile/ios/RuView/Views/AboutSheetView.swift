@@ -73,7 +73,7 @@ struct AboutSheetView: View {
                 infoRow("Data Source", sourceLabel,
                         icon: sourceIcon, accent: sourceAccent)
                 Divider().padding(.leading, 52)
-                infoRow("Active Nodes", "\(viewModel.nodes.count) of 4",
+                infoRow("Active Nodes", "\(viewModel.directActiveNodes) of 3",
                         icon: "dot.radiowaves.up.forward", accent: .steel)
                 Divider().padding(.leading, 52)
                 infoRow("Live Tick", viewModel.formattedTick,
