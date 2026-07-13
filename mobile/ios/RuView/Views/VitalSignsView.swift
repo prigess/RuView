@@ -8,28 +8,34 @@ struct VitalSignsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                // Only show "measuring" when a vitals radar (C6) is actually
-                // connected — otherwise it's misleading (there's nothing to measure).
-                if viewModel.isMeasuring && viewModel.radarReachable {
+                let hasAnyVitals = viewModel.bleHrReachable || viewModel.radarReachable
+                    || viewModel.snapshot?.vitalSigns != nil
+
+                // Only show "measuring" when a vitals source is actually connected.
+                if viewModel.isMeasuring && (viewModel.radarReachable || viewModel.bleHrReachable) {
                     measuringBanner
                 }
+
+                // BLE strap = the accurate, contact-based heart-rate source.
+                if viewModel.bleHrReachable {
+                    SectionHeader(title: "Heart Rate — BLE strap")
+                    bleHeartCard
+                }
+
                 if let vitals = viewModel.snapshot?.vitalSigns {
                     SectionHeader(title: "Vital Signs", trailing: liveTimestamp)
                     heartRateCard(vitals: vitals)
                     breathingCard(vitals: vitals)
-
-                    if viewModel.radarReachable {
-                        SectionHeader(title: "60 GHz Radar (Node 7)")
-                        radarCard
-                    }
-
                     SectionHeader(title: "Signal")
                     signalQualityCard(vitals: vitals)
-                    disclaimerFooter
-                } else if viewModel.radarReachable {
-                    // CSI snapshot not flowing, but radar is — still useful for the demo.
+                }
+
+                if viewModel.radarReachable {
                     SectionHeader(title: "60 GHz Radar (Node 7)")
                     radarCard
+                }
+
+                if hasAnyVitals {
                     disclaimerFooter
                 } else {
                     noDataCard
@@ -137,6 +143,63 @@ struct VitalSignsView: View {
             status: status,
             trend: viewModel.breathingTrend()
         )
+    }
+
+    // MARK: - BLE heart-rate strap (0x180D via Pi ruview-hrd)
+
+    private var bleHeartCard: some View {
+        let r = viewModel.bleHeartReading
+        let live = r?.isLive ?? false
+        let bpm: Double? = live ? r?.bpm.map(Double.init) ?? nil : nil
+        let hrv: Double? = live ? r?.hrvMs : nil
+
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Image(systemName: "heart.fill")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(.heartRed)
+                Text("BLE heart-rate strap")
+                    .font(.subheadline).fontWeight(.semibold)
+                    .foregroundColor(.healthText)
+                Spacer()
+                bleContactChip(live: live, contact: r?.sensorContact ?? "not_supported")
+            }
+
+            HStack(spacing: 14) {
+                radarMetric(icon: "heart.fill", color: .heartRed,
+                            label: "Heart", value: bpmText(bpm), unit: "BPM")
+                radarMetric(icon: "waveform.path.ecg", color: .steel,
+                            label: "HRV", value: hrvText(hrv), unit: "ms")
+            }
+
+            if live, r?.sensorContact == "not_detected" {
+                Text("Strap not on skin — reading paused")
+                    .font(.caption).foregroundColor(.orange)
+            }
+            if let r, let dev = r.device {
+                Text("\(dev) · updated \(ageString(r.timestamp)) ago")
+                    .font(.caption2).foregroundColor(.healthSub)
+            }
+        }
+        .ruCard()
+    }
+
+    private func bleContactChip(live: Bool, contact: String) -> some View {
+        let (label, color): (String, Color) =
+            !live ? ("No strap", .healthSub)
+            : contact == "not_detected" ? ("Off skin", .orange)
+            : ("Live", .green)
+        return HStack(spacing: 4) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text(label).font(.system(size: 11, weight: .semibold)).foregroundColor(color)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .background(color.opacity(0.10)).cornerRadius(6)
+    }
+
+    private func hrvText(_ v: Double?) -> String {
+        guard let v, v > 0 else { return "–" }
+        return "\(Int(v.rounded()))"
     }
 
     // MARK: - 60GHz Radar (ESP32-C6 + MR60BHA2, polled directly)

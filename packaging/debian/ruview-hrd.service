@@ -1,0 +1,18 @@
+[Unit]
+Description=RuView BLE Heart-Rate REST bridge (MQTT ruview-ble/hr -> :3027)
+Documentation=https://github.com/ruvnet/RuView
+After=network-online.target mosquitto.service
+Wants=network-online.target
+Requires=mosquitto.service
+
+[Service]
+Type=simple
+# Subscribes to ruview-ble/hr/# (published by ruview-ble-hr-decoder) and
+# serves the freshest HR + HRV at GET :3027/api/v1/hr for the iOS app.
+EnvironmentFile=-/etc/ruview/hrd.conf
+ExecStart=/usr/bin/python3 /usr/local/bin/ruview-hrd
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

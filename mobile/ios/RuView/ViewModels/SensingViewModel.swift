@@ -55,6 +55,14 @@ final class SensingViewModel: ObservableObject {
     @Published var audioReading: AudioReading?
     @Published var audioReachable: Bool = false
 
+    // ── BLE heart rate (Orange Pi ruview-hrd bridge, :3027) ──────────────────
+    // A BLE HR strap/ring (0x180D) → ruview-ble-hr-decoder → MQTT → ruview-hrd.
+    // The cheap, trustworthy, contact-based vitals source (HR + HRV) — accurate
+    // where the C6 radar was flaky. The Pi owns BLE + decode; app renders.
+    let hrClient: BLEHeartClient
+    @Published var bleHeartReading: BLEHeartReading?
+    @Published var bleHrReachable: Bool = false
+
     // ── Mic-derived signals (loudness only, until the voice-streaming upgrade) ──
     /// Current A-weighted sound level (Leq, dBFS — negative).
     @Published var soundLevelDb: Double?
@@ -232,12 +240,23 @@ final class SensingViewModel: ObservableObject {
         self.ld2410Client = LD2410Client()
         self.micClient = MicClient()
         self.audioClient = AudioClient()
+        self.hrClient = BLEHeartClient()
         bindClientPublishers()
         bindRadarPublishers()
         bindLD2450Publishers()
         bindLD2410Publishers()
         bindMicPublishers()
         bindAudioPublishers()
+        bindHRPublishers()
+    }
+
+    private func bindHRPublishers() {
+        hrClient.$reading
+            .receive(on: RunLoop.main)
+            .assign(to: &$bleHeartReading)
+        hrClient.$isReachable
+            .receive(on: RunLoop.main)
+            .assign(to: &$bleHrReachable)
     }
 
     private func bindAudioPublishers() {
@@ -390,6 +409,7 @@ final class SensingViewModel: ObservableObject {
         // (YAMNet + radar fusion), not the on-device loudness sensors.
         // micClient.start(host: micHost)
         audioClient.start(host: host)   // Orange Pi :3025 /api/v1/audio
+        hrClient.start(host: host)      // Orange Pi :3027 /api/v1/hr (BLE HR strap)
     }
 
     func disconnect() {
@@ -401,6 +421,7 @@ final class SensingViewModel: ObservableObject {
         ld2410Client.stop()
         micClient.stop()
         audioClient.stop()
+        hrClient.stop()
         stopPolling()
         nodes = []
         zones = []
@@ -546,14 +567,31 @@ final class SensingViewModel: ObservableObject {
         return personCount
     }
 
-    /// Live heart rate — from the C6 only when its reading passes the clutter
-    /// trust gate; otherwise the (possibly stale) server-derived value.
+    /// Live heart rate. Priority: a BLE HR strap/ring (contact, accurate) →
+    /// the C6 radar (only when it passes the clutter trust gate) → the
+    /// (possibly stale) server-derived value.
     var fusedHeartRate: Int? {
+        if bleHrReachable, bleHeartReading?.isLive == true, let bpm = bleHeartReading?.bpm, bpm > 0 {
+            return bpm
+        }
         if radarReachable, radarReading?.vitalsTrusted == true,
            let hr = radarReading?.heartRateBpm, hr > 0 {
             return Int(hr.rounded())
         }
         return displayHeartRate
+    }
+
+    /// Heart-rate variability (RMSSD, ms) — only the BLE strap provides it.
+    var fusedHrvMs: Double? {
+        guard bleHrReachable, bleHeartReading?.isLive == true else { return nil }
+        return bleHeartReading?.hrvMs
+    }
+
+    /// Which source is currently feeding the heart rate (for honest labeling).
+    var heartRateSource: String? {
+        if bleHrReachable, bleHeartReading?.isLive == true { return "BLE strap" }
+        if radarReachable, radarReading?.vitalsTrusted == true, (radarReading?.heartRateBpm ?? 0) > 0 { return "60 GHz radar" }
+        return nil
     }
 
     /// Live breathing rate — C6 when trusted, else server fallback.

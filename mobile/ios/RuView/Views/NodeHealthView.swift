@@ -60,15 +60,19 @@ struct NodeHealthView: View {
     private var ld2410Online: Bool { viewModel.ld2410Reachable }
     private var micOnline: Bool { viewModel.audioReachable && viewModel.audioReading?.stream == "up" }
     private var c6Online: Bool { viewModel.radarReachable }
+    // BLE HR strap is opt-in / often absent, so it's a bonus node: counted only
+    // when present (both online and expected), never shown as a stale offline card.
+    private var bleHrOnline: Bool { viewModel.bleHrReachable }
 
-    /// Direct-poll nodes online (LD2450 + LD2410 + INMP441 mic + C6 vitals).
+    /// Direct-poll nodes online (LD2450 + LD2410 + INMP441 mic + C6 vitals + BLE HR).
     private var directOnline: Int {
-        (ld2450Online ? 1 : 0) + (ld2410Online ? 1 : 0) + (micOnline ? 1 : 0) + (c6Online ? 1 : 0)
+        (ld2450Online ? 1 : 0) + (ld2410Online ? 1 : 0) + (micOnline ? 1 : 0)
+            + (c6Online ? 1 : 0) + (bleHrOnline ? 1 : 0)
     }
 
-    /// Total expected positions = server-rostered dome nodes + the 4 direct
-    /// nodes (LD2450 tracking + LD2410C presence + INMP441 audio + C6 vitals).
-    private var totalExpected: Int { expectedRoster.count + 4 }
+    /// Total expected = server-rostered dome nodes + 4 fixed direct nodes
+    /// (LD2450 + LD2410C + INMP441 + C6) + the BLE HR strap when it's present.
+    private var totalExpected: Int { expectedRoster.count + 4 + (bleHrOnline ? 1 : 0) }
 
     private var onlineCount: Int {
         expectedRoster.filter { activeNode(for: $0) != nil }.count + directOnline
@@ -168,6 +172,10 @@ struct NodeHealthView: View {
                 C6NodeCard(reachable: viewModel.radarReachable,
                            reading: viewModel.radarReading,
                            mac: "58:E6:C5:13:5A:9C")
+                // BLE HR strap — bonus node, only shown when a strap is paired.
+                if bleHrOnline {
+                    BLEHRNodeCard(reading: viewModel.bleHeartReading)
+                }
                 ForEach(expectedRoster) { expected in
                     if let active = activeNode(for: expected) {
                         NodeCard(
@@ -886,6 +894,103 @@ private struct C6NodeCard: View {
         HStack(spacing: 3) {
             Circle().fill(Color.healthSub).frame(width: 7, height: 7)
             Text("Offline").font(.caption2).fontWeight(.medium)
+        }
+        .foregroundColor(.healthSub)
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(Color.healthSub.opacity(0.10)).cornerRadius(6)
+    }
+}
+
+// MARK: - BLEHRNodeCard
+//
+// BLE heart-rate strap/ring (0x180D) via the Pi's ruview-hrd bridge. Only
+// rendered when a strap is paired (bonus node). Shows live HR + HRV.
+
+private struct BLEHRNodeCard: View {
+    let reading: BLEHeartReading?
+
+    private var live: Bool { reading?.isLive ?? false }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("BLE HR strap")
+                        .font(.callout).fontWeight(.semibold)
+                        .foregroundColor(.healthText)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                    Text("VITALS · BLE")
+                        .font(.system(size: 9, weight: .semibold)).tracking(1.0)
+                        .foregroundColor(.heartRed)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(Color.heartRed.opacity(0.12)).cornerRadius(4)
+                        .lineLimit(1)
+                    Text(reading?.device ?? "—")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(.healthSub).tracking(0.3)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                }
+                Spacer()
+                if live { activeDot } else { offlineBadge }
+            }
+
+            HStack(spacing: 4) {
+                Image(systemName: "heart.fill").font(.system(size: 9, weight: .semibold))
+                Text("0x180D · contact").font(.system(size: 10, weight: .medium))
+            }
+            .foregroundColor(.heartRed)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Color.heartRed.opacity(0.12)).cornerRadius(4)
+
+            if live, let bpm = reading?.bpm {
+                HStack(alignment: .bottom, spacing: 8) {
+                    Text("\(bpm)")
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .foregroundColor(.healthText).monospacedDigit()
+                        .contentTransition(.numericText())
+                    Text("BPM").font(.caption).foregroundColor(.healthSub)
+                }
+                Divider()
+                HStack(spacing: 6) {
+                    Image(systemName: "waveform.path.ecg").font(.caption2).foregroundColor(.steel)
+                    if let hrv = reading?.hrvMs, hrv > 0 {
+                        Text("HRV \(Int(hrv.rounded())) ms").font(.caption).foregroundColor(.healthSub).monospacedDigit()
+                    } else {
+                        Text("HRV —").font(.caption).foregroundColor(.healthSub)
+                    }
+                }
+            } else {
+                Spacer(minLength: 0)
+                VStack(spacing: 6) {
+                    Image(systemName: "heart.slash").font(.system(size: 28)).foregroundColor(.steelLight)
+                    Text(reading?.sensorContact == "not_detected" ? "Strap off skin" : "No reading")
+                        .font(.caption2).foregroundColor(.healthSub)
+                }
+                .frame(maxWidth: .infinity)
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(14)
+        .frame(minHeight: 200, alignment: .top)
+        .background(Color.surface)
+        .cornerRadius(14)
+        .shadow(color: Color.steel.opacity(live ? 0.10 : 0.05), radius: 6, x: 0, y: 2)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(live ? Color.heartRed.opacity(0.30) : Color.healthSub.opacity(0.25), lineWidth: 1.5)
+        )
+    }
+
+    private var activeDot: some View {
+        HStack(spacing: 5) {
+            LivePulseDot(color: .heartRed, size: 6, active: true)
+            Text("Live").font(.caption2).foregroundColor(.heartRed)
+        }
+    }
+    private var offlineBadge: some View {
+        HStack(spacing: 3) {
+            Circle().fill(Color.healthSub).frame(width: 7, height: 7)
+            Text("Idle").font(.caption2).fontWeight(.medium)
         }
         .foregroundColor(.healthSub)
         .padding(.horizontal, 6).padding(.vertical, 3)

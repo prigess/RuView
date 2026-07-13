@@ -846,3 +846,101 @@ final class AudioClient: ObservableObject {
         }
     }
 }
+
+// MARK: - BLEHeartClient (Pi BLE heart-rate REST, :3027)
+//
+// Thin client for the Orange Pi's ruview-hrd bridge. A BLE HR strap/ring
+// (Bluetooth-SIG Heart Rate Service 0x180D) → ruview-ble-hr-decoder → MQTT →
+// ruview-hrd → this. The Pi owns the BLE + decode; the app just renders.
+// Endpoint: GET http://<pi>:3027/api/v1/hr
+
+struct BLEHeartReading {
+    let bpm: Int?
+    let hrvMs: Double?          // RMSSD, ms — heart-rate variability
+    let sensorContact: String   // "detected" | "not_detected" | "not_supported"
+    let device: String?
+    let ageSec: Double?
+    let stream: String          // "up" (fresh) | "down" (stale/no device)
+    let timestamp: Date
+
+    /// A live, usable heartbeat right now.
+    var isLive: Bool { stream == "up" && (bpm ?? 0) > 0 }
+    /// The strap reports it's actually on the skin (or doesn't expose contact).
+    var contactOk: Bool { sensorContact != "not_detected" }
+}
+
+private struct HRDTO: Decodable {
+    let bpm: Int?
+    let hrv_ms: Double?
+    let sensor_contact: String?
+    let device: String?
+    let age_sec: Double?
+    let stream: String?
+}
+
+@MainActor
+final class BLEHeartClient: ObservableObject {
+    @Published var reading: BLEHeartReading?
+    @Published var isReachable: Bool = false
+
+    private var host: String = ""
+    private let port: Int = 3027
+    private var pollTask: Task<Void, Never>?
+    private let urlSession: URLSession
+    private let pollInterval: TimeInterval = 1.0
+    private var consecutiveFailures = 0
+    private let maxFailures = 3
+
+    init() {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 3
+        cfg.timeoutIntervalForResource = 5
+        cfg.waitsForConnectivity = false
+        self.urlSession = URLSession(configuration: cfg)
+    }
+
+    func start(host: String) {
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if pollTask != nil && trimmed == self.host { return }
+        stop()
+        self.host = trimmed
+        pollTask = Task { [weak self] in await self?.pollLoop() }
+    }
+
+    func stop() {
+        pollTask?.cancel(); pollTask = nil
+        isReachable = false; reading = nil; consecutiveFailures = 0
+    }
+
+    private func pollLoop() async {
+        while !Task.isCancelled {
+            await pollOnce()
+            try? await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
+        }
+    }
+
+    private func pollOnce() async {
+        guard !host.isEmpty, let url = URL(string: "http://\(host):\(port)/api/v1/hr") else { return }
+        do {
+            let (data, resp) = try await urlSession.data(from: url)
+            guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+                  let dto = try? JSONDecoder().decode(HRDTO.self, from: data) else {
+                throw URLError(.badServerResponse)
+            }
+            consecutiveFailures = 0
+            isReachable = true
+            reading = BLEHeartReading(
+                bpm: dto.bpm,
+                hrvMs: dto.hrv_ms,
+                sensorContact: dto.sensor_contact ?? "not_supported",
+                device: dto.device,
+                ageSec: dto.age_sec,
+                stream: dto.stream ?? "down",
+                timestamp: Date())
+        } catch {
+            consecutiveFailures += 1
+            if consecutiveFailures >= maxFailures { isReachable = false; reading = nil }
+        }
+    }
+}
