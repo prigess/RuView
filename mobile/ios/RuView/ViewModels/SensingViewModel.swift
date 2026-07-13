@@ -525,7 +525,7 @@ final class SensingViewModel: ObservableObject {
     /// presence in an empty room). The C6 is deliberately excluded — see above.
     var anyPresenceEvidence: Bool {
         if ld2450AntennaConnected, ld2450Reachable, (ld2450Reading?.targetCount ?? 0) > 0 { return true }
-        if ld2410Reachable, ld2410Reading?.personPresent == true { return true }
+        if ld2410Reachable, ld2410Reading?.isTrustworthyPresence == true { return true }
         return false
     }
 
@@ -616,7 +616,7 @@ final class SensingViewModel: ObservableObject {
     // the ranged LD2410 is the honest motion source; server classification is a
     // last-resort fallback. (Roles: LD2410C = presence+motion, LD2450 = count+where.)
     var fusedMotionState: String {   // "moving" | "still" | "absent"
-        if ld2410Reachable, let r = ld2410Reading {
+        if ld2410Reachable, let r = ld2410Reading, r.isTrustworthyPresence {
             if r.movingPresent { return "moving" }
             if r.stillPresent { return "still" }
         }

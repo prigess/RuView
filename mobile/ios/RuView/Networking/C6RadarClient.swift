@@ -523,6 +523,24 @@ struct LD2410Reading {
         return "Clear"
     }
 
+    // Clutter floors, tuned against a live empty room. The LD2410C's
+    // has_moving_target / has_still_target BINARY flags are unreliable — in an
+    // empty hall the moving flag fires ~half the time at 0% energy off a wall
+    // reflection. The ENERGY is the honest signal: that reflector never cleared
+    // 16% moving / 13% still, while a real body runs 50–100%. So we gate on
+    // energy, not the flags.
+    static let movingBodyEnergyFloor: Double = 35.0
+    static let stillBodyEnergyFloor: Double = 20.0
+
+    /// Presence we trust for occupancy: a moving OR still return whose energy
+    /// clears the clutter floor. This is what keeps an empty room from reading
+    /// "occupied" off a static reflection.
+    var isTrustworthyPresence: Bool {
+        if let e = movingEnergy, e >= LD2410Reading.movingBodyEnergyFloor { return true }
+        if let e = stillEnergy,  e >= LD2410Reading.stillBodyEnergyFloor  { return true }
+        return false
+    }
+
     /// Best single distance estimate, in metres (nil when no target).
     var distanceMeters: Double? {
         let cm: Double?
