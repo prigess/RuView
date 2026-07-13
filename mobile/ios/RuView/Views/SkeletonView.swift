@@ -52,7 +52,7 @@ struct SkeletonView: View {
         // localize) → a centered figure, so the skeleton matches the Occupancy
         // count instead of blinking out.
         if viewModel.radarOccupantCount > 0 {
-            return [LD2450Target(id: 1, x: 0, y: 1200)]
+            return [LD2450Target(id: 1, x: 0, y: 1200, speed: 0)]
         }
         return []
     }

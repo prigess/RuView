@@ -294,6 +294,7 @@ struct LD2450Target: Identifiable {
     let id: Int          // slot 1…3
     let x: Double        // mm
     let y: Double        // mm
+    let speed: Double?   // cm/s, signed (− = approaching); nil when unreported
     /// Straight-line distance from the sensor, in metres.
     var distanceMeters: Double { (x * x + y * y).squareRoot() / 1000.0 }
 }
@@ -338,6 +339,14 @@ final class LD2450Client: ObservableObject {
     // correct once the antenna is attached (real targets are always ≤ 6 m).
     private let maxRangeMeters: Double = 6.0
     private let reachableMaxFailures: Int = 3
+
+    // Ghost rejection by physics: a static reflector (wall/corner/metal) that
+    // the LD2450 hallucinates as a target reports a nonsensical speed — we've
+    // seen ±1190 cm/s (11.9 m/s) off an empty hall. No human moves that fast
+    // indoors (a brisk walk is ~1.4 m/s, a run ~4 m/s), so any target whose
+    // reported speed exceeds this cap is a reflection, not a person. A real
+    // still person reads ~0 cm/s and passes untouched.
+    private let maxHumanSpeedCmS: Double = 350.0
 
     // Count stabilisation. Two tracks closer than `desplitMeters` are one person
     // the radar split in the near field → merged. Then a HOLD: mmWave is
@@ -423,10 +432,14 @@ final class LD2450Client: ObservableObject {
         async let t2y = fetchNumeric("/sensor/target_2_y")
         async let t3x = fetchNumeric("/sensor/target_3_x")
         async let t3y = fetchNumeric("/sensor/target_3_y")
+        async let t1s = fetchNumeric("/sensor/target_1_speed")
+        async let t2s = fetchNumeric("/sensor/target_2_speed")
+        async let t3s = fetchNumeric("/sensor/target_3_speed")
 
         let countR = await count, movingR = await moving, presentR = await present
         let xs = [await t1x, await t2x, await t3x]
         let ys = [await t1y, await t2y, await t3y]
+        let speeds = [await t1s, await t2s, await t3s]
 
         // If the whole node is unreachable, drop the card after a few misses.
         if countR == nil && presentR == nil && xs.allSatisfy({ $0 == nil }) {
@@ -442,12 +455,14 @@ final class LD2450Client: ObservableObject {
         for i in 0..<3 {
             // A slot is active only when it reports a real coordinate. Empty
             // slots come back as value:null, and a parked (0,0) means no target.
-            // Reject anything beyond the rated range — that's ghost, not person.
             if let x = xs[i], let y = ys[i], !(x == 0 && y == 0) {
-                let t = LD2450Target(id: i + 1, x: x, y: y)
-                if t.distanceMeters <= maxRangeMeters {
-                    targets.append(t)
-                }
+                let t = LD2450Target(id: i + 1, x: x, y: y, speed: speeds[i])
+                // Reject beyond the rated range — that's ghost, not person.
+                guard t.distanceMeters <= maxRangeMeters else { continue }
+                // Reject nonphysical speed — a static reflector the radar
+                // hallucinates as a target (empty-hall ghost at ±11.9 m/s).
+                if let v = speeds[i], abs(v) > maxHumanSpeedCmS { continue }
+                targets.append(t)
             }
         }
 
