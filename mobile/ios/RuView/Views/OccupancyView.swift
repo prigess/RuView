@@ -306,14 +306,14 @@ struct OccupancyView: View {
             HStack(spacing: 14) {
                 ZStack {
                     Circle()
-                        .fill(viewModel.motionColor.opacity(0.15))
+                        .fill(viewModel.fusedMotionColor.opacity(0.15))
                         .frame(width: 38, height: 38)
                     Circle()
-                        .fill(viewModel.motionColor)
+                        .fill(viewModel.fusedMotionColor)
                         .frame(width: 14, height: 14)
                 }
                 Text(viewModel.displayPresence
-                     ? viewModel.stickyMotionLevelDisplay
+                     ? viewModel.fusedMotionDisplay      // motion owned by the LD2410C
                      : "No one here")   // occupancy state, not audio — avoids clashing
                     .font(.title2).fontWeight(.semibold)   // with the Sound ID card ("Speech")
                     .foregroundColor(.healthText)

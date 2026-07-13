@@ -591,6 +591,35 @@ final class SensingViewModel: ObservableObject {
         }
     }
 
+    // ── Fused motion — OWNED by the LD2410C ──────────────────────────────────
+    // The LD2410C reliably reports moving/still out to ~3.7 m+, where the LD2450
+    // goes blind (~2 m) and the server has no radar since the C6 was pulled. So
+    // the ranged LD2410 is the honest motion source; server classification is a
+    // last-resort fallback. (Roles: LD2410C = presence+motion, LD2450 = count+where.)
+    var fusedMotionState: String {   // "moving" | "still" | "absent"
+        if ld2410Reachable, let r = ld2410Reading {
+            if r.movingPresent { return "moving" }
+            if r.stillPresent { return "still" }
+        }
+        if anyPresenceEvidence { return "still" }   // present but no motion flag → still
+        return motionLevel.contains("moving") ? "moving"
+             : motionLevel.contains("still") ? "still" : "absent"
+    }
+    var fusedMotionDisplay: String {
+        switch fusedMotionState {
+        case "moving": return "Moving"
+        case "still":  return "Still"
+        default:       return "No motion"
+        }
+    }
+    var fusedMotionColor: Color {
+        switch fusedMotionState {
+        case "moving": return .orange
+        case "still":  return .steel
+        default:       return .healthSub
+        }
+    }
+
     var isDemoMode: Bool {
         snapshot?.source == "simulate"
     }
