@@ -243,6 +243,10 @@
         <b>On hold — Vitals (heart rate / breathing):</b> the C6 + MR60BHA2 60 GHz radar was pulled from the demo mix — it fabricates a phantom heartbeat off near-field static clutter. It returns once placed with a clear ~1.5 m near field (it's the only sensor built to read a still, breathing person).
       </div>
 
+      <div class="status-note">
+        <b>Three tiers of hardware.</b> ① <b>ESP32-attached modules</b> (≤4 jumper wires, ESPHome) — the cheap radars/mic/thermal we run today, made honest with physics gates. ② <b>Orange Pi–attached ML radars</b> (TI IWR6843, Infineon BGT60) — expose <i>raw</i> data so the NPU can run models; the "YAMNet for radar" tier. ③ <b>Professional / clinical-grade</b> (Vayyar 4D imaging, Novelda/Xethru UWB, EarlySense/Emfit under-mattress) — deployed in senior-living / hospitals; the pilot tier for real fall + vitals. <b>Audio is already at tier-③ quality</b> via YAMNet ML on the Pi; these bring the same ML-grade rigor to presence, vitals, and fall.
+      </div>
+
     </div>
   </div>
 
@@ -491,6 +495,153 @@ sensor:
           ['Doorway count', 'Two VL53L1X at opposite ends of a doorway · order of trip = direction (in vs out)'],
           ['Chair occupied','Mount on a wall facing the recliner · distance drops when occupied · binary-ize at threshold'],
           ['Bed occupancy', 'Same trick on the bedroom wall · combine with PIR for sleep state'],
+        ]
+      }
+    ]
+  }
+},
+
+/* ───────── ML-GRADE RAW-DATA RADAR (Orange Pi–attached, not ESP32) ───────── */
+{
+  group: 'ML-grade raw-data radar (Orange Pi–attached — the "YAMNet for radar" tier)',
+  name: 'TI IWR6843', sub: '60 GHz · raw range-Doppler · ML fall/count/vitals · ◆ POTENTIAL',
+  iface: 'USB/SPI → Pi', cost: '$150–250', ease: 'hard', consent: 'default',
+  desc: 'The ML-grade radar — the step up from the cheap HLK/Seeed modules. TI 60 GHz FMCW that exposes the RAW range-Doppler data (not just a cooked target list), so the Orange Pi NPU can run TI\'s reference models — 3D people counting, fall detection, vital signs — or a custom micro-Doppler CNN. Attaches to the Pi (USB EVM / SPI), NOT an ESP32: it needs the high-bandwidth data path + TI mmWave SDK. This is why it wasn\'t in the ESP32-jumper-wire catalog — different tier, different host.',
+  scenarios: ['PRES', 'COUNT', 'FALL', 'HRBR', 'SLEEP'],
+  detail: {
+    title: 'TI IWR6843 — 60 GHz mmWave, raw-data / ML-grade radar',
+    meta: 'TI IWR6843 (ISK/ODS/AOP) · 60 GHz FMCW · raw range-Doppler cube + point cloud · attaches to Orange Pi (USB EVM or SPI), not ESP32',
+    rows: [
+      ['Why it\'s a different tier', 'Unlike the LD2410/LD2450 (on-chip DSP → target list only), the IWR6843 streams the raw signal — the input an ML model actually needs. No raw data = no model; this gives it.'],
+      ['Host',        'Orange Pi 5 (RK3588 + 6 TOPS NPU) over USB (EVM) or SPI (DCA1000/carrier) — NOT an ESP32 (bandwidth + SDK)'],
+      ['Range',       'People counting ~6–10 m · fall detection whole-room · vitals ~1.5 m (like the MR60BHA2 but with real DSP behind it)'],
+      ['Models',      'TI Industrial Toolbox ships ready pipelines: 3D people counting, fall detection, vital signs · open mmWave SDK for custom micro-Doppler CNNs'],
+      ['Cost',        '~$150–250 (IWR6843ISK / IWR6843AOP EVM)'],
+      ['Effort',      'HIGH — real SDK integration, config chirp profiles, run inference on the NPU · not a drop-in ESPHome sensor'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — the ML fall/activity radar',
+        rows: [
+          ['Solves',        'Robust-through-clutter presence, multi-person counting, and ML fall/activity classification the HLK modules physically can\'t (they don\'t expose raw data)'],
+          ['Upgrade path',  'This is the "order a better sensor" answer for vitals/fall: it\'s the class the C6+MR60BHA2 is the poor-man\'s version of'],
+          ['Fits the NPU',  'The Pi\'s RK3588 NPU is idle-capable — the missing piece was always a radar that hands it raw frames'],
+          ['Trade-off',     'Cost + integration effort · overkill for basic presence (the gated HLK modules already do that honestly)'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'ML-grade raw-data radar (Orange Pi–attached — the "YAMNet for radar" tier)',
+  name: 'Infineon BGT60TR13C', sub: '60 GHz · Google Soli chip · pretrained presence/gesture · ◆ POTENTIAL',
+  iface: 'SPI → Pi', cost: '$60–100', ease: 'hard', consent: 'default',
+  desc: 'The radar chip behind Google Soli / Pixel presence-sensing. 60 GHz FMCW that exposes raw IQ; Infineon\'s XENSIV / Radar Development Kit ships PRETRAINED presence + gesture models that are robust to the static-clutter ghosts we fight on the HLK radars. Lower-cost ML-grade option, focused on presence/gesture rather than counting/vitals. SPI to a host (Pi / Raspberry Pi), not an ESP32.',
+  scenarios: ['PRES', 'NIGHT', 'ROUTINE'],
+  detail: {
+    title: 'Infineon BGT60TR13C — 60 GHz XENSIV radar (Google Soli)',
+    meta: 'Infineon BGT60TR13C · 60 GHz FMCW · raw IQ · SPI to a Linux host (Pi) · XENSIV Radar SDK with pretrained presence/gesture models',
+    rows: [
+      ['Why it\'s here',   'Pretrained, clutter-robust presence/gesture models out of the box — the closest thing to a "YAMNet for radar," but it needs the raw-IQ chip to run them'],
+      ['Host',        'Orange Pi / Raspberry Pi over SPI (Radar Development Kit / shield2go) — NOT an ESP32'],
+      ['Range',       'Presence/gesture to a few metres · not a people-counter or vitals radar like the IWR6843'],
+      ['Models',      'Infineon XENSIV Radar SDK: presence detection, segmentation, gesture — pretrained + tunable'],
+      ['Cost',        '~$60–100 (Radar Dev Kit / Shield2Go)'],
+      ['Effort',      'HIGH — SPI host integration + SDK · cheaper and simpler than the IWR6843 but still not ESPHome'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — clutter-robust presence',
+        rows: [
+          ['Solves',       'The exact ghost problem we hand-gate on the LD2410/LD2450 — its pretrained models reject static reflections natively'],
+          ['Best for',     'Presence + gesture (e.g. a wave to dismiss an alert) · pair with a counting/vitals radar for the full picture'],
+          ['Trade-off',    'Presence/gesture only · integration effort · for basic presence the gated HLK modules are already good enough'],
+        ]
+      }
+    ]
+  }
+},
+
+/* ───────── PROFESSIONAL / CLINICAL-GRADE (expensive — pilot candidates) ───────── */
+{
+  group: 'Professional / clinical-grade contactless (expensive — pilot candidates)',
+  name: 'Vayyar (4D imaging radar)', sub: '60 GHz 4D · fall + posture · elder-care proven · ◆ PILOT',
+  iface: 'USB/Ethernet → Pi', cost: '$300–1000+', ease: 'hard', consent: 'default',
+  desc: 'The professional answer to fall detection. Vayyar\'s 4D imaging radar (behind Vayyar Care / Walabot HOME) builds a 3D picture of the room WITHOUT a camera — it tracks posture, detects falls, counts people and locates them, all privacy-preserving. Purpose-built for and deployed in senior-living fall-alert systems. Evaluation kits + SDK integrate to a host (Pi) over USB/Ethernet.',
+  scenarios: ['FALL', 'PRES', 'COUNT', 'SLEEP'],
+  detail: {
+    title: 'Vayyar — 4D imaging radar (clinical elder-care grade)',
+    meta: 'Vayyar imaging radar (VYYR-series) · 60 GHz · 3D point cloud + posture · privacy-preserving (no camera) · host via SDK',
+    rows: [
+      ['What it is',  'A single ceiling/wall unit that images the whole room in 3D — the professional-grade version of everything the cheap radars approximate'],
+      ['Fall',        'Purpose-built, marketed & deployed for elder fall detection (Vayyar Care) — posture + drop + on-floor confirmation, not a motion-spike heuristic'],
+      ['Privacy',     'No camera, no wearable — images are silhouette-level 3D, not identifiable'],
+      ['Cost',        '~$300–1000+ depending on eval kit / commercial unit'],
+      ['Effort',      'HIGH — commercial SDK, but a real product-grade fall solution rather than a DIY gate'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — the fall-detection pilot',
+        rows: [
+          ['Start here for fall', 'If fall detection is the priority, this is the grade that actually works in the field — the roadmap\'s #2 priority'],
+          ['Replaces',            'The staged fall heuristic + the MR60FDA2 experiment, with a clinically-deployed system'],
+          ['Fits RuView',         'Pi ingests its events → same app/REST pipeline · caregiver alerting on top'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Professional / clinical-grade contactless (expensive — pilot candidates)',
+  name: 'Novelda / Xethru UWB', sub: 'ultra-wideband · medical respiration + presence · ◆ PILOT',
+  iface: 'USB/SPI → Pi', cost: '$200–500', ease: 'hard', consent: 'default',
+  desc: 'Medical-grade ultra-wideband (impulse) radar — a different, higher-fidelity technology than the cheap FMCW modules. The X4M200 measures respiration + movement (used in clinical sleep monitoring); the X4M300 does robust presence with native clutter rejection. Buyable developer modules. This is the professional-grade non-contact respiration/sleep source.',
+  scenarios: ['HRBR', 'SLEEP', 'PRES', 'NIGHT'],
+  detail: {
+    title: 'Novelda / Xethru X4 — UWB impulse radar (medical grade)',
+    meta: 'Novelda X4 (X4M200 respiration · X4M300 presence · X4M03 dev kit) · ultra-wideband impulse · USB/SPI to a host',
+    rows: [
+      ['Tech',        'Ultra-wideband impulse (not FMCW) — finer range resolution + strong static-clutter rejection, the exact weakness of our HLK/C6 radars'],
+      ['Respiration', 'X4M200 is built and validated for respiration + sleep-movement monitoring (clinical sleep studies use this class)'],
+      ['Presence',    'X4M300 gives medical-grade presence robust to the reflections we hand-gate today'],
+      ['Cost',        '~$200–500 (dev module)'],
+      ['Effort',      'HIGH — SDK on a Pi host · not ESPHome'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — the vitals/sleep pilot',
+        rows: [
+          ['Start here for vitals', 'If contactless breathing/sleep is the priority, this is the professional grade the C6+MR60BHA2 gestures at'],
+          ['Solves',                'The near-field-clutter phantom that pulled the C6 — UWB rejects it natively'],
+          ['Bedside/sleep',         'Best mounted bedside/ceiling for nightly respiration + restlessness'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'Professional / clinical-grade contactless (expensive — pilot candidates)',
+  name: 'EarlySense / Emfit (under-mattress)', sub: 'ballistocardiography · in-bed HR/RR/motion · ◆ PILOT',
+  iface: 'Ethernet/API', cost: '$300 (Emfit QS) – clinical', ease: 'med', consent: 'default',
+  desc: 'Contact-free UNDER-MATTRESS sensing — nothing on the body. A piezo strip under the mattress reads ballistocardiography: continuous heart rate, respiration, movement/turns, and bed-exit. EarlySense is hospital/SNF-deployed; Emfit QS is the prosumer version with an open API. Best-in-class for in-bed vitals + restlessness + bed-exit — complementary to radar (which covers the rest of the room).',
+  scenarios: ['HRBR', 'SLEEP', 'NIGHT', 'FALL'],
+  detail: {
+    title: 'EarlySense / Emfit QS — under-mattress ballistocardiography',
+    meta: 'Piezo strip under the mattress · HR + RR + movement + bed-exit · Emfit QS has a cloud/local API · fully contact-free',
+    rows: [
+      ['What it is',  'A thin sensor under the mattress — the person feels nothing, wears nothing'],
+      ['Signals',     'Continuous HR, respiration rate, gross movement/turning, and bed-exit — the strongest in-bed vitals of any contactless method'],
+      ['Clinical',    'EarlySense is used in hospitals/skilled nursing for continuous monitoring; Emfit QS is the accessible dev-friendly version'],
+      ['Cost',        '~$300 (Emfit QS) to clinical pricing (EarlySense)'],
+      ['Effort',      'MED — Emfit exposes an API the Pi can poll; no radar SDK gymnastics'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — the bed/night pilot',
+        rows: [
+          ['Best in bed',   'For sleep vitals + restlessness + bed-exit it beats any radar — no aim, no clutter, no line-of-sight'],
+          ['Complement',    'Pair with a room radar (Vayyar/UWB) — bed sensor owns the bed, radar owns the room'],
+          ['Easy win',      'Lowest integration effort of the professional tier — Emfit QS API → Pi → app'],
         ]
       }
     ]
