@@ -648,6 +648,126 @@ sensor:
   }
 },
 
+/* ───────── BLE MEDICAL DEVICES (pair to the Orange Pi's Bluetooth — no ESP32) ───────── */
+{
+  group: 'BLE devices (to the Orange Pi’s Bluetooth — cheap, no ESP32)',
+  name: 'BLE HR strap / ring (0x180D)', sub: 'chest strap or smart ring · real HR + HRV · ★ DECODER BUILT',
+  iface: 'BLE → Pi', cost: '$25–60', ease: 'med', consent: 'opt-in',
+  desc: 'The cheap, trustworthy vitals the C6 radar couldn\'t deliver. Any Bluetooth-SIG Heart Rate Service device — a Polar H10 strap, a cheap HR band, a compatible smart ring — streams REAL heart rate + RR-intervals (HRV) over BLE. RuView\'s ruview-ble-hr-decoder already GATT-subscribes (unbonded, allowlist by MAC, auto-reconnect) and republishes to MQTT; the decoder is unit-tested against a real Polar H10 frame. Contact-based, opt-in, disabled by default.',
+  scenarios: ['HRBR', 'SLEEP', 'PREDICT'],
+  detail: {
+    title: 'BLE Heart Rate Service (0x180D) — strap / band / ring',
+    meta: 'Bluetooth SIG Heart Rate Measurement (0x2A37) · HR + RR-intervals (HRV) + sensor-contact · pairs to the Pi\'s BlueZ · ruview-ble-hr-decoder → MQTT ruview-ble/hr/<mac>',
+    rows: [
+      ['Status',      'DECODER BUILT & UNIT-TESTED (10 tests incl. Polar H10). Sensor→MQTT works; the remaining wiring is MQTT→server/app + an iOS HR card'],
+      ['Signal',      'HR (bpm) + RR-intervals → HRV + sensor-contact + energy — richer than any radar vitals'],
+      ['Devices',     'Polar H10 = gold standard; any standards-compliant 0x180D strap/band/ring'],
+      ['Pairing',     'Unbonded notifications — no pairing dance; just allowlist the MAC'],
+      ['Cost',        '$25–60'],
+      ['Privacy',     'Opt-in, allowlist-only, disabled by default (consent model in the systemd unit)'],
+    ],
+    sections: [
+      {
+        heading: 'RuView role — the honest vitals source',
+        rows: [
+          ['Solves',       'Real, trustworthy HR — the C6 radar was contactless-but-flaky; a strap is contact-but-accurate. Complementary, not competing'],
+          ['HRV bonus',    'RR-intervals give heart-rate variability — a genuine stress / autonomic-health signal for the prediction roadmap'],
+          ['Next steps',   'Pi REST bridge (mirror ruview-audiod) exposing /api/v1/hr → iOS HRClient + vitals card · ~1 evening once a strap is on hand'],
+          ['Best for',     'Elders who\'ll wear a strap/ring at least part-day, or overnight sleep HR/HRV'],
+        ]
+      }
+    ]
+  }
+},
+{
+  group: 'BLE devices (to the Orange Pi’s Bluetooth — cheap, no ESP32)',
+  name: 'BLE pulse oximeter', sub: 'fingertip SpO₂ + pulse · BLE',
+  iface: 'BLE → Pi', cost: '$25–50', ease: 'med', consent: 'opt-in',
+  desc: 'Fingertip SpO₂ + pulse over BLE (BerryMed, Wellue/Viatom). SpO₂ is genuinely useful in respiratory illness and NO radar can measure it. Most use a vendor-specific GATT profile (not a SIG standard), so each needs a small per-vendor decoder — BerryMed\'s protocol is well-documented and a good first target.',
+  scenarios: ['HRBR', 'PREDICT', 'SAFETY'],
+  detail: {
+    title: 'BLE pulse oximeter — SpO₂ + pulse',
+    meta: 'Fingertip / ring pulse-ox over BLE · vendor GATT (BerryMed / Wellue) · pairs to the Pi',
+    rows: [
+      ['Signal',    'SpO₂ (%) + pulse rate + (some) plethysmograph waveform'],
+      ['Why',       'Respiratory decline / COPD / infection early-warning — radar and mic can\'t do SpO₂'],
+      ['Protocol',  'Mostly proprietary GATT — needs a per-device decoder (BerryMed documented; reuse the ruview-ble scaffolding)'],
+      ['Cost',      '$25–50'],
+      ['Effort',    'MED — one decoder module per vendor, same MQTT plumbing as the HR decoder'],
+    ],
+    sections: [
+      { heading: 'RuView role — the SpO₂ gap-filler',
+        rows: [
+          ['Complements', 'HR strap (HR/HRV) + pulse-ox (SpO₂) together = a real spot vitals panel, all contactless-to-the-room / wearable'],
+          ['Spot vs cont','Some are continuous (ring), some spot-check — pick continuous for monitoring'],
+        ] }
+    ]
+  }
+},
+{
+  group: 'BLE devices (to the Orange Pi’s Bluetooth — cheap, no ESP32)',
+  name: 'BLE blood-pressure cuff (0x1810)', sub: 'BP + pulse · SIG standard',
+  iface: 'BLE → Pi', cost: '$40–80', ease: 'med', consent: 'opt-in',
+  desc: 'Omron / Beurer BLE cuffs speak the SIG Blood Pressure Service (0x1810) — a STANDARD profile like Heart Rate, so decodable with the same approach as ruview-ble-hr-decoder. Spot measurement (not continuous). BP trend is a core elder cardiovascular signal.',
+  scenarios: ['PREDICT', 'ELDER'],
+  detail: {
+    title: 'BLE blood-pressure monitor (0x1810)',
+    meta: 'SIG Blood Pressure Service (0x1810 / Blood Pressure Measurement 0x2A35) · systolic/diastolic/MAP + pulse · spot reading',
+    rows: [
+      ['Signal',   'Systolic / diastolic / mean arterial pressure + pulse + timestamp'],
+      ['Standard', 'SIG profile — same decoding pattern as the HR service (no per-vendor reverse-engineering)'],
+      ['Cadence',  'Spot measurement when the elder takes a reading — logs a trend'],
+      ['Cost',     '$40–80 (Omron/Beurer BLE)'],
+    ],
+    sections: [
+      { heading: 'RuView role — cardiovascular trend',
+        rows: [ ['Predict', 'BP trend feeds the health-prediction roadmap; pairs with HR/HRV for a cardiac picture'] ] }
+    ]
+  }
+},
+{
+  group: 'BLE devices (to the Orange Pi’s Bluetooth — cheap, no ESP32)',
+  name: 'BLE temp/humidity beacon', sub: 'Xiaomi LYWSD03MMC / Govee · advert broadcast · $3–8',
+  iface: 'BLE advert → Pi', cost: '$3–8', ease: 'easy', consent: 'default',
+  desc: 'Dirt-cheap BLE beacons (Xiaomi LYWSD03MMC with ATC/custom firmware, Govee) BROADCAST temperature + humidity in their adverts — no pairing, no connection. The passive ruview-ble-scanner already observes adverts, so per-room comfort needs only a decoder for the advert payload — the cheapest possible way to add rooms without wiring an ESP32.',
+  scenarios: ['ENVIRO'],
+  detail: {
+    title: 'BLE temp/humidity advert beacon',
+    meta: 'Xiaomi LYWSD03MMC (ATC firmware) / Govee · temp+humidity in BLE advert · no pairing · read by the passive scanner',
+    rows: [
+      ['Signal',   'Temperature + humidity (+ battery) in the advertisement payload'],
+      ['No pairing','Broadcast-only — the passive scanner reads it; zero connection state'],
+      ['Cost',     '$3–8 each — cheapest per-room comfort sensor there is'],
+      ['Effort',   'EASY — add an advert-payload decoder to the existing scanner'],
+    ],
+    sections: [
+      { heading: 'RuView role — per-room comfort, no wiring',
+        rows: [ ['Scale-out', 'Sprinkle beacons room-to-room; the one Pi scanner ingests them all — no ESP32 per room'] ] }
+    ]
+  }
+},
+{
+  group: 'BLE devices (to the Orange Pi’s Bluetooth — cheap, no ESP32)',
+  name: 'BLE panic button / pendant', sub: 'wearable SOS · active call-for-help',
+  iface: 'BLE → Pi', cost: '$8–20', ease: 'med', consent: 'opt-in',
+  desc: 'A wearable BLE button (or a repurposed BLE tag / iTag) the elder presses for help. The Pi\'s scanner sees the button-press advert / GATT and fires a caregiver alert — an ACTIVE call-for-help that complements passive fall detection (the person can summon help even when no fall is detected).',
+  scenarios: ['SAFETY', 'ELDER'],
+  detail: {
+    title: 'BLE panic button / SOS pendant',
+    meta: 'Wearable BLE button / iTag-class tag · press → advert/GATT event → Pi → caregiver alert',
+    rows: [
+      ['Signal',  'Button-press event (single / long / double)'],
+      ['Why',     'Active SOS — the elder\'s own call-for-help, independent of any automatic detection'],
+      ['Cost',    '$8–20'],
+      ['Effort',  'MED — map the button\'s press event in the scanner → alert path'],
+    ],
+    sections: [
+      { heading: 'RuView role — the active safety net',
+        rows: [ ['Complements', 'Passive fall detection catches what the elder can\'t report; the button catches what the sensors miss'] ] }
+    ]
+  }
+},
+
 /* ───────── VITALS (radar-supplemental + skin contact, opt-in) ───────── */
 {
   group: 'Vitals (non-contact preferred; contact opt-in)',
