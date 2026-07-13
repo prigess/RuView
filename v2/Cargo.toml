@@ -47,6 +47,11 @@ members = [
     # WiFi BFI captures. Sub-ADRs: 119 (frame), 120 (privacy class),
     # 121 (identity risk), 122 (HA/Matter), 123 (capture path).
     "crates/wifi-densepose-bfld",
+    # Passive BLE-advertisement scanner — Pi-side daemon that republishes
+    # observed BLE devices to MQTT (`ruview-ble/<id>/state`).  First step
+    # toward integrating BLE medical devices (CGMs, BP cuffs, scales, pulse
+    # oximeters, panic pendants) into the RuView sensing pipeline. Linux-only.
+    "crates/ruview-ble-scanner",
     # rvCSI — edge RF sensing runtime (ADR-095 platform, ADR-096 FFI/crate layout):
     # lives in its own repo (https://github.com/ruvnet/rvcsi), vendored here as
     # `vendor/rvcsi` and published to crates.io as `rvcsi-*` 0.3.x. Depend on the

@@ -1,0 +1,35 @@
+[Unit]
+Description=RuView BLE Heart Rate Service decoder (GATT subscriber for 0x180D)
+Documentation=https://github.com/ruvnet/RuView
+# Depends on bluetoothd + the broker on the same Pi.
+After=bluetooth.target mosquitto.service network-online.target
+Wants=bluetooth.target
+Requires=mosquitto.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/lib/ruview-ble
+
+# Config: comma-separated list of MAC addresses in
+#   RUVIEW_BLE_HR_DEVICES=AA:BB:CC:DD:EE:FF,11:22:33:44:55:66
+# plus optional MQTT host/port/prefix overrides.
+EnvironmentFile=-/etc/ruview/ble-hr.conf
+
+ExecStart=/usr/bin/ruview-ble-hr-decoder
+
+# Opt-in: disabled by default per the consent contract.
+# Caregiver enables explicitly:
+#   systemctl enable --now ruview-ble-hr-decoder
+Restart=on-failure
+RestartSec=10
+
+# Hardening
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ruview-ble
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

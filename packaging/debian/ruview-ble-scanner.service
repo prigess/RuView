@@ -1,0 +1,42 @@
+[Unit]
+Description=RuView passive BLE-advertisement scanner
+Documentation=https://github.com/ruvnet/RuView
+# Needs bluetoothd to be up first
+After=bluetooth.target network-online.target
+Wants=bluetooth.target
+# Sensing-server's MQTT broker is on the same Pi; if mosquitto restarts we
+# do too (cheap restart, keeps subscriptions fresh).
+Requires=mosquitto.service
+After=mosquitto.service
+
+[Service]
+Type=simple
+# Needs CAP_NET_ADMIN + CAP_NET_RAW for BlueZ DBus access. Easiest to run
+# as root for now; once permissions are audited, switch to a dedicated user
+# in the `bluetooth` group with capabilities granted via systemd.
+User=root
+WorkingDirectory=/var/lib/ruview-ble
+
+# All scanner config is environment variables; the binary parses them via clap.
+EnvironmentFile=-/etc/ruview/ble-scanner.conf
+
+ExecStart=/usr/bin/ruview-ble-scanner
+
+# Disabled by default — opt-in per the catalog's consent model.
+# Enable with: systemctl enable --now ruview-ble-scanner
+Restart=on-failure
+RestartSec=10
+# Don't let a failing scanner spam restart-loops.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Hardening: BLE scanner doesn't need write access anywhere except its salt
+# file under /var/lib/ruview-ble/.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ruview-ble
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
