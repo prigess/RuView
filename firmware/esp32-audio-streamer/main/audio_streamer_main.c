@@ -22,10 +22,11 @@
 #include "esp_netif.h"
 #include "driver/i2s_std.h"
 #include "lwip/sockets.h"
+#include <errno.h>
 
 // ── Configuration ───────────────────────────────────────────────────────────
 #define WIFI_SSID     "Firefly"
-#define WIFI_PASS     "CHANGE_ME"           // <-- set your Wi-Fi password
+#define WIFI_PASS     "CHANGE_ME"           // <-- set your Wi-Fi password (do not commit real pw)
 #define PI_IP         "192.168.7.205"       // Orange Pi running ruview-audiod
 #define PI_UDP_PORT   5006
 
@@ -69,6 +70,12 @@ static void wifi_init(void) {
     wifi_config_t wc = { 0 };
     strncpy((char *)wc.sta.ssid, WIFI_SSID, sizeof(wc.sta.ssid) - 1);
     strncpy((char *)wc.sta.password, WIFI_PASS, sizeof(wc.sta.password) - 1);
+    // Lock to AP B. AP A (…bc:54:a6) has client-isolation that silently drops
+    // the UDP audio stream to the Pi (verified: sendto succeeds, Pi rx = 0).
+    // AP B (…bc:7b:e6) forwards client→Pi traffic — same BSSID the CSI nodes lock to.
+    static const uint8_t AP_B_BSSID[6] = { 0x14, 0x22, 0xdb, 0xbc, 0x7b, 0xe6 };
+    wc.sta.bssid_set = true;
+    memcpy(wc.sta.bssid, AP_B_BSSID, 6);
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));   // no power-save; keep audio smooth
@@ -110,15 +117,25 @@ static void stream_task(void *arg) {
     static int16_t pcm[FRAME_SAMPLES];
     size_t nread;
     ESP_LOGI(TAG, "Streaming PCM16 %d Hz → %s:%d", SAMPLE_RATE, PI_IP, PI_UDP_PORT);
+    int64_t sent = 0, readerr = 0, senderr = 0; int frames = 0; int last_sr = 0;
     while (1) {
-        if (i2s_channel_read(s_rx, raw, sizeof(raw), &nread, portMAX_DELAY) != ESP_OK) continue;
+        esp_err_t re = i2s_channel_read(s_rx, raw, sizeof(raw), &nread, portMAX_DELAY);
+        if (re != ESP_OK) { readerr++; continue; }
         int n = nread / sizeof(int32_t);
+        int64_t sum = 0;
         for (int i = 0; i < n; i++) {
             int32_t v = raw[i] >> GAIN_SHIFT;
             if (v > 32767) v = 32767; else if (v < -32768) v = -32768;
             pcm[i] = (int16_t)v;
+            sum += (v < 0 ? -v : v);
         }
-        sendto(sock, pcm, n * sizeof(int16_t), 0, (struct sockaddr *)&dst, sizeof(dst));
+        int r = sendto(sock, pcm, n * sizeof(int16_t), 0, (struct sockaddr *)&dst, sizeof(dst));
+        if (r < 0) { senderr++; last_sr = errno; } else { sent++; }
+        // DIAG: log ~every 2 s (100 × 20 ms frames)
+        if (++frames % 1500 == 0) {   // ~30 s liveness heartbeat
+            ESP_LOGI(TAG, "diag sent=%lld readerr=%lld senderr=%lld last_errno=%d nread=%d avgamp=%lld",
+                     sent, readerr, senderr, last_sr, (int)nread, (n ? sum / n : 0));
+        }
     }
 }
 

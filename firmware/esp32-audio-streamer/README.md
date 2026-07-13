@@ -49,3 +49,24 @@ sshpass -p orangepi ssh root@192.168.7.205 journalctl -u ruview-audiod -f
 The Pi side (`ruview-audiod`, installed at `/usr/local/bin/ruview-audiod`,
 enabled systemd service) receives the stream, runs inference, fuses with the
 radar's `edge-vitals`, and serves the result at `:3025/api/v1/audio`.
+
+## ⚠ Critical: Pi-side networking (why "the mic was down")
+
+The board streams **UDP** to the Pi. UDP has no retransmit — if the L2 path is
+wrong, packets die silently with no recovery (unlike the radars' **TCP** MQTT,
+which retransmits through problems). Two Pi-side requirements:
+
+1. **ARP-flux fix (root cause of the infamous "only the mic is down").** The Pi
+   is multi-homed on one subnet (ethernet `.212`/`.205` + wlan0 `.206`). By
+   default both interfaces answer ARP for any local IP, so the board sometimes
+   cached the Pi's *WiFi* MAC for `.205` and its UDP died in WiFi
+   client-isolation. Fix (persisted in `/etc/sysctl.d/99-ruview-arp.conf`):
+   ```
+   net.ipv4.conf.all.arp_ignore=1
+   net.ipv4.conf.all.arp_announce=2
+   ```
+   Each interface then answers ARP only for its own IPs → `.205` resolves to the
+   ethernet MAC → bridged path works. TCP (radars) survived without this; UDP
+   (mic) did not — that's why *only* the mic broke.
+2. **Ethernet-primary routing** (`enP4p65s0` metric 100 < `wlan0` 600) and the
+   board BSSID-locked to AP B (`14:22:db:bc:7b:e6`).
