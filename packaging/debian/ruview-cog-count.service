@@ -1,0 +1,18 @@
+[Unit]
+Description=RuView cog-person-count — CNN person-count inference on CSI (Candle)
+Documentation=https://github.com/ruvnet/RuView
+After=network-online.target ruview-sensing.service
+Wants=ruview-sensing.service
+
+[Service]
+Type=simple
+# Polls the sensing-server's /sensing/latest, slides a 56x20 CSI window,
+# runs the trained count head, emits person.count events. Idle (warns
+# "missing nodes[]") until CSI is flowing. Config: /etc/ruview/cog-count.json
+WorkingDirectory=/root/RuView/v2
+ExecStart=/usr/local/bin/cog-person-count run --config /etc/ruview/cog-count.json
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
