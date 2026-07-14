@@ -63,6 +63,14 @@ final class SensingViewModel: ObservableObject {
     @Published var bleHeartReading: BLEHeartReading?
     @Published var bleHrReachable: Bool = false
 
+    // ── CSI person-count CNN (Orange Pi ruview-countd, :3028) ────────────────
+    // ruview-countd supervises the cog-person-count Candle model; this surfaces
+    // its count. Idle until CSI is flowing. Distinct from the LD2450 radar count
+    // — a model-driven second opinion, not (yet) the authoritative hero count.
+    let countClient: CountClient
+    @Published var modelCountReading: ModelCountReading?
+    @Published var modelCountReachable: Bool = false
+
     // ── Mic-derived signals (loudness only, until the voice-streaming upgrade) ──
     /// Current A-weighted sound level (Leq, dBFS — negative).
     @Published var soundLevelDb: Double?
@@ -241,6 +249,7 @@ final class SensingViewModel: ObservableObject {
         self.micClient = MicClient()
         self.audioClient = AudioClient()
         self.hrClient = BLEHeartClient()
+        self.countClient = CountClient()
         bindClientPublishers()
         bindRadarPublishers()
         bindLD2450Publishers()
@@ -248,6 +257,7 @@ final class SensingViewModel: ObservableObject {
         bindMicPublishers()
         bindAudioPublishers()
         bindHRPublishers()
+        bindCountPublishers()
     }
 
     private func bindHRPublishers() {
@@ -257,6 +267,15 @@ final class SensingViewModel: ObservableObject {
         hrClient.$isReachable
             .receive(on: RunLoop.main)
             .assign(to: &$bleHrReachable)
+    }
+
+    private func bindCountPublishers() {
+        countClient.$reading
+            .receive(on: RunLoop.main)
+            .assign(to: &$modelCountReading)
+        countClient.$isReachable
+            .receive(on: RunLoop.main)
+            .assign(to: &$modelCountReachable)
     }
 
     private func bindAudioPublishers() {
@@ -410,6 +429,7 @@ final class SensingViewModel: ObservableObject {
         // micClient.start(host: micHost)
         audioClient.start(host: host)   // Orange Pi :3025 /api/v1/audio
         hrClient.start(host: host)      // Orange Pi :3027 /api/v1/hr (BLE HR strap)
+        countClient.start(host: host)   // Orange Pi :3028 /api/v1/count (CSI CNN)
     }
 
     func disconnect() {
@@ -422,6 +442,7 @@ final class SensingViewModel: ObservableObject {
         micClient.stop()
         audioClient.stop()
         hrClient.stop()
+        countClient.stop()
         stopPolling()
         nodes = []
         zones = []

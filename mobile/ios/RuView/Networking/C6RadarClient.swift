@@ -944,3 +944,97 @@ final class BLEHeartClient: ObservableObject {
         }
     }
 }
+
+// MARK: - CountClient (Pi CSI person-count model REST, :3028)
+//
+// Thin client for the Orange Pi's ruview-countd, which supervises the
+// cog-person-count Candle CNN (CSI → person count). The Pi owns inference;
+// the app renders the model's count. Endpoint: GET http://<pi>:3028/api/v1/count
+// Idle (stream "down") until CSI is flowing.
+
+struct ModelCountReading {
+    let count: Int?
+    let confidence: Double?      // model confidence (0–1); note: uncalibrated
+    let p95Low: Int?
+    let p95High: Int?
+    let stream: String           // "up" (fresh) | "down" (no CSI / stale)
+    let timestamp: Date
+
+    var isLive: Bool { stream == "up" && count != nil }
+}
+
+private struct CountDTO: Decodable {
+    let count: Int?
+    let confidence: Double?
+    let p95_low: Int?
+    let p95_high: Int?
+    let stream: String?
+    // `timestamp` is a float epoch from the cog — intentionally not decoded;
+    // the client stamps its own receipt time.
+}
+
+@MainActor
+final class CountClient: ObservableObject {
+    @Published var reading: ModelCountReading?
+    @Published var isReachable: Bool = false
+
+    private var host: String = ""
+    private let port: Int = 3028
+    private var pollTask: Task<Void, Never>?
+    private let urlSession: URLSession
+    private let pollInterval: TimeInterval = 1.5
+    private var consecutiveFailures = 0
+    private let maxFailures = 3
+
+    init() {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 3
+        cfg.timeoutIntervalForResource = 5
+        cfg.waitsForConnectivity = false
+        self.urlSession = URLSession(configuration: cfg)
+    }
+
+    func start(host: String) {
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if pollTask != nil && trimmed == self.host { return }
+        stop()
+        self.host = trimmed
+        pollTask = Task { [weak self] in await self?.pollLoop() }
+    }
+
+    func stop() {
+        pollTask?.cancel(); pollTask = nil
+        isReachable = false; reading = nil; consecutiveFailures = 0
+    }
+
+    private func pollLoop() async {
+        while !Task.isCancelled {
+            await pollOnce()
+            try? await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
+        }
+    }
+
+    private func pollOnce() async {
+        guard !host.isEmpty, let url = URL(string: "http://\(host):\(port)/api/v1/count") else { return }
+        do {
+            let (data, resp) = try await urlSession.data(from: url)
+            guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+                  let dto = try? JSONDecoder().decode(CountDTO.self, from: data) else {
+                throw URLError(.badServerResponse)
+            }
+            consecutiveFailures = 0
+            isReachable = true
+            reading = ModelCountReading(
+                count: dto.count,
+                confidence: dto.confidence,
+                p95Low: dto.p95_low,
+                p95High: dto.p95_high,
+                stream: dto.stream ?? "down",
+                timestamp: Date())
+        } catch {
+            consecutiveFailures += 1
+            if consecutiveFailures >= maxFailures { isReachable = false; reading = nil }
+        }
+    }
+}

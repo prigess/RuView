@@ -63,16 +63,22 @@ struct NodeHealthView: View {
     // BLE HR strap is opt-in / often absent, so it's a bonus node: counted only
     // when present (both online and expected), never shown as a stale offline card.
     private var bleHrOnline: Bool { viewModel.bleHrReachable }
+    // The CSI person-count CNN bridge (ruview-countd). A software inference
+    // module, not a device — shown as a bonus node only when reachable.
+    private var modelCountOnline: Bool { viewModel.modelCountReachable }
 
-    /// Direct-poll nodes online (LD2450 + LD2410 + INMP441 mic + C6 vitals + BLE HR).
+    /// Direct-poll nodes online (LD2450 + LD2410 + INMP441 mic + C6 vitals + BLE HR + CSI-CNN).
     private var directOnline: Int {
         (ld2450Online ? 1 : 0) + (ld2410Online ? 1 : 0) + (micOnline ? 1 : 0)
-            + (c6Online ? 1 : 0) + (bleHrOnline ? 1 : 0)
+            + (c6Online ? 1 : 0) + (bleHrOnline ? 1 : 0) + (modelCountOnline ? 1 : 0)
     }
 
     /// Total expected = server-rostered dome nodes + 4 fixed direct nodes
-    /// (LD2450 + LD2410C + INMP441 + C6) + the BLE HR strap when it's present.
-    private var totalExpected: Int { expectedRoster.count + 4 + (bleHrOnline ? 1 : 0) }
+    /// (LD2450 + LD2410C + INMP441 + C6) + the BLE HR strap and the CSI-CNN
+    /// bridge when each is present (bonus nodes).
+    private var totalExpected: Int {
+        expectedRoster.count + 4 + (bleHrOnline ? 1 : 0) + (modelCountOnline ? 1 : 0)
+    }
 
     private var onlineCount: Int {
         expectedRoster.filter { activeNode(for: $0) != nil }.count + directOnline
@@ -175,6 +181,10 @@ struct NodeHealthView: View {
                 // BLE HR strap — bonus node, only shown when a strap is paired.
                 if bleHrOnline {
                     BLEHRNodeCard(reading: viewModel.bleHeartReading)
+                }
+                // CSI person-count CNN — bonus inference node (ruview-countd).
+                if modelCountOnline {
+                    ModelCountNodeCard(reading: viewModel.modelCountReading)
                 }
                 ForEach(expectedRoster) { expected in
                     if let active = activeNode(for: expected) {
@@ -985,6 +995,102 @@ private struct BLEHRNodeCard: View {
         HStack(spacing: 5) {
             LivePulseDot(color: .heartRed, size: 6, active: true)
             Text("Live").font(.caption2).foregroundColor(.heartRed)
+        }
+    }
+    private var offlineBadge: some View {
+        HStack(spacing: 3) {
+            Circle().fill(Color.healthSub).frame(width: 7, height: 7)
+            Text("Idle").font(.caption2).fontWeight(.medium)
+        }
+        .foregroundColor(.healthSub)
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(Color.healthSub.opacity(0.10)).cornerRadius(6)
+    }
+}
+
+// MARK: - ModelCountNodeCard
+//
+// CSI person-count CNN (cog-person-count via ruview-countd :3028). A software
+// inference module, not a device — shown only when the bridge is reachable.
+
+private struct ModelCountNodeCard: View {
+    let reading: ModelCountReading?
+
+    private var live: Bool { reading?.isLive ?? false }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("CSI count · CNN")
+                        .font(.callout).fontWeight(.semibold)
+                        .foregroundColor(.healthText)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                    Text("MODEL")
+                        .font(.system(size: 9, weight: .semibold)).tracking(1.0)
+                        .foregroundColor(.indigo)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(Color.indigo.opacity(0.12)).cornerRadius(4)
+                        .lineLimit(1)
+                    Text("cog-person-count")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(.healthSub).tracking(0.3)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                }
+                Spacer()
+                if live { activeDot } else { offlineBadge }
+            }
+
+            HStack(spacing: 4) {
+                Image(systemName: "cpu").font(.system(size: 9, weight: .semibold))
+                Text("Candle · on-device").font(.system(size: 10, weight: .medium))
+            }
+            .foregroundColor(.indigo)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Color.indigo.opacity(0.12)).cornerRadius(4)
+
+            if live, let c = reading?.count {
+                HStack(alignment: .bottom, spacing: 8) {
+                    Text("\(c)")
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .foregroundColor(.healthText).monospacedDigit()
+                        .contentTransition(.numericText())
+                    Text(c == 1 ? "person" : "people").font(.caption).foregroundColor(.healthSub)
+                }
+                Divider()
+                HStack(spacing: 6) {
+                    Image(systemName: "gauge.medium").font(.caption2).foregroundColor(.steel)
+                    if let conf = reading?.confidence {
+                        Text("conf \(Int((conf * 100).rounded()))%").font(.caption).foregroundColor(.healthSub).monospacedDigit()
+                    } else {
+                        Text("conf —").font(.caption).foregroundColor(.healthSub)
+                    }
+                }
+            } else {
+                Spacer(minLength: 0)
+                VStack(spacing: 6) {
+                    Image(systemName: "cpu").font(.system(size: 28)).foregroundColor(.steelLight)
+                    Text("Waiting for CSI").font(.caption2).foregroundColor(.healthSub)
+                }
+                .frame(maxWidth: .infinity)
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(14)
+        .frame(minHeight: 200, alignment: .top)
+        .background(Color.surface)
+        .cornerRadius(14)
+        .shadow(color: Color.steel.opacity(live ? 0.10 : 0.05), radius: 6, x: 0, y: 2)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(live ? Color.indigo.opacity(0.35) : Color.healthSub.opacity(0.25), lineWidth: 1.5)
+        )
+    }
+
+    private var activeDot: some View {
+        HStack(spacing: 5) {
+            LivePulseDot(color: .indigo, size: 6, active: true)
+            Text("Live").font(.caption2).foregroundColor(.indigo)
         }
     }
     private var offlineBadge: some View {
