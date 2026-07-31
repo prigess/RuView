@@ -223,7 +223,7 @@ struct DeviceSetupView: View {
         }
     }
 
-    /// Accept either an IPv4 dotted-quad ("192.168.7.205") or a hostname
+    /// Accept either an IPv4 dotted-quad ("192.168.8.11") or a hostname
     /// ("simha.local", "orangepi.local", "ruview-server"). The latter resolves
     /// via the device's DNS / mDNS resolver — particularly useful when the
     /// Pi's IP changes between networks (phone hotspot vs. home WiFi).

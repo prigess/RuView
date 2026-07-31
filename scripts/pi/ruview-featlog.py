@@ -21,7 +21,7 @@ Pure stdlib — no numpy/deps — so it runs anywhere.
 """
 import urllib.request, json, time, math, os, argparse
 
-L50 = "192.168.7.186"; LD = "192.168.7.153"; C6 = "192.168.7.145"; PI = "192.168.7.205"
+L50 = "192.168.8.184"; LD = "192.168.8.132"; C6 = "192.168.8.228"; PI = "192.168.8.11"
 LABEL_FILES = ["/run/ruview/featlog.label", "/etc/ruview/featlog.label"]
 OUT_DIR = "/var/lib/ruview/featlog"
 

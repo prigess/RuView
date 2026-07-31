@@ -18,14 +18,11 @@ private struct ExpectedNode: Identifiable {
     let chip: String             // "ESP32-S3" or "ESP32-C6"
 }
 
-// Current dome roster (2026-06-19): 3 ESP32-S3 CSI nodes on Firefly +
-// 1 ESP32-C6 radar (currently off-network at the office).
-// Pi at 192.168.7.205 (with 192.168.7.212 as a persistent secondary IP
-// for legacy S3 target_ip compatibility).
-// 2026-07-11 — C6 (MR60BHA2, node 4) removed from the roster: it fabricates
-// presence + a phantom heartbeat off near-field static clutter, so it's out of
-// the demo mix. The live nodes are all direct-poll: LD2450 (count/tracking),
-// LD2410C (presence), INMP441 (audio). Empty server roster ⇒ no offline C6 card.
+// Current dome roster (2026-07-30): all on NorimNetwork, Pi pinned static at
+// 192.168.8.11. The live nodes are direct-poll: LD2450 (.184, count/tracking),
+// LD2410C (.132, presence), C6·MR60BHA2 (.228, vitals — clutter-gated), plus
+// INMP441 audio via the Pi's voice daemon. Empty server roster ⇒ cards are
+// built from the direct-poll clients, not a server-side node list.
 private let expectedRoster: [ExpectedNode] = []
 
 // MARK: - NodeHealthView

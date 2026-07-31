@@ -20,7 +20,7 @@ final class SensingViewModel: ObservableObject {
     /// pinned in the router. Stored in UserDefaults under "c6RadarHost"
     /// so a future settings screen can edit it without changing this class.
     private var c6RadarHost: String {
-        UserDefaults.standard.string(forKey: "c6RadarHost") ?? "192.168.7.145"
+        UserDefaults.standard.string(forKey: "c6RadarHost") ?? "192.168.8.228"
     }
 
     // MARK: - LD2450 24GHz tracking radar (direct ESPHome poller)
@@ -31,7 +31,7 @@ final class SensingViewModel: ObservableObject {
     /// IP of the LD2450 ESPHome node. Stored in UserDefaults ("ld2450Host")
     /// so a settings screen can edit it without touching this class.
     private var ld2450Host: String {
-        UserDefaults.standard.string(forKey: "ld2450Host") ?? "192.168.7.186"
+        UserDefaults.standard.string(forKey: "ld2450Host") ?? "192.168.8.184"
     }
 
     // MARK: - LD2410C 24GHz presence radar (direct ESPHome poller)
@@ -40,7 +40,7 @@ final class SensingViewModel: ObservableObject {
     @Published var ld2410Reachable: Bool = false
 
     private var ld2410Host: String {
-        UserDefaults.standard.string(forKey: "ld2410Host") ?? "192.168.7.153"
+        UserDefaults.standard.string(forKey: "ld2410Host") ?? "192.168.8.132"
     }
 
     // MARK: - INMP441 audio node (direct ESPHome poller)
@@ -103,10 +103,6 @@ final class SensingViewModel: ObservableObject {
             lastImpactAt = Date()
         }
         impactDetected = lastImpactAt.map { Date().timeIntervalSince($0) < 4 } ?? false
-    }
-
-    private var micHost: String {
-        UserDefaults.standard.string(forKey: "micHost") ?? "192.168.7.151"
     }
 
     /// Whether the LD2450's antenna is attached. With the antenna on (the
@@ -426,7 +422,6 @@ final class SensingViewModel: ObservableObject {
         // The mic node was reflashed to the raw-audio streamer (no ESPHome HTTP),
         // so sound now comes from the Pi's voice-intelligence daemon over REST
         // (YAMNet + radar fusion), not the on-device loudness sensors.
-        // micClient.start(host: micHost)
         audioClient.start(host: host)   // Orange Pi :3025 /api/v1/audio
         hrClient.start(host: host)      // Orange Pi :3027 /api/v1/hr (BLE HR strap)
         countClient.start(host: host)   // Orange Pi :3028 /api/v1/count (CSI CNN)

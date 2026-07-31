@@ -24,7 +24,7 @@ SAMPLE_RATE = 16000
 SENSING = "http://127.0.0.1:3022/api/v1/edge-vitals"
 YAMNET = "/opt/ruview/models/yamnet.tflite"
 CLASSMAP = "/opt/ruview/models/yamnet_class_map.csv"
-SCORE_MIN = 0.20
+SCORE_MIN = 0.10
 
 _buf = deque(maxlen=SAMPLE_RATE * 2)
 _lock = threading.Lock()
@@ -98,7 +98,7 @@ SPEECH = {"Speech", "Conversation", "Narration, monologue", "Child speech, kid s
 MEDIA = {"Music", "Television", "Radio", "Musical instrument", "Singing"}
 ALARM = {"Glass", "Shatter", "Alarm", "Smoke detector, smoke alarm", "Thump, thud"}
 
-LD2410_PRESENCE = "http://192.168.7.153/binary_sensor/person_present"
+LD2410_PRESENCE = "http://192.168.8.132/binary_sensor/person_present"
 def radar_present():
     # Primary presence source = LD2410C (per the fusion ladder); edge-vitals fallback.
     try:

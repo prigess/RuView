@@ -25,9 +25,9 @@
 #include <errno.h>
 
 // ── Configuration ───────────────────────────────────────────────────────────
-#define WIFI_SSID     "Firefly"
+#define WIFI_SSID     "NorimNetwork"
 #define WIFI_PASS     "CHANGE_ME"           // <-- set your Wi-Fi password (do not commit real pw)
-#define PI_IP         "192.168.7.205"       // Orange Pi running ruview-audiod
+#define PI_IP         "192.168.8.11"        // Orange Pi running ruview-audiod (NorimNetwork)
 #define PI_UDP_PORT   5006
 
 #define I2S_BCLK      GPIO_NUM_15
@@ -74,8 +74,8 @@ static void wifi_init(void) {
     // the UDP audio stream to the Pi (verified: sendto succeeds, Pi rx = 0).
     // AP B (…bc:7b:e6) forwards client→Pi traffic — same BSSID the CSI nodes lock to.
     static const uint8_t AP_B_BSSID[6] = { 0x14, 0x22, 0xdb, 0xbc, 0x7b, 0xe6 };
-    wc.sta.bssid_set = true;
-    memcpy(wc.sta.bssid, AP_B_BSSID, 6);
+    wc.sta.bssid_set = false;   // no BSSID lock — join NorimNetwork's AP by SSID
+    (void)AP_B_BSSID;
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));   // no power-save; keep audio smooth
