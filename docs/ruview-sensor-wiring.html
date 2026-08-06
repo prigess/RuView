@@ -201,6 +201,60 @@
   <div class="note danger"><span class="t">Do not swap the rail</span>INMP441 is a 3.3V part. Feeding it 5V from the radar harness can damage it. Keep radar and mic harnesses visually distinct.</div>
 </section>
 
+<!-- ───────────────── MAX98357 ───────────────── -->
+<section class="card">
+  <h2>MAX98357 <span class="role">— I²S Class-D amplifier (audio OUT → speaker), 3.2 W</span></h2>
+  <p class="lead">This is an <strong>output</strong> device — the reverse of the mic. The ESP32 <em>transmits</em> audio to the amp. Because it's I²S it <strong>shares the mic's BCLK + LRC clock lines</strong>, so pairing it with the INMP441 as a two-way audio node costs only one extra data pin.</p>
+
+  <h3>Primary — two-way audio node (mic + speaker, full-duplex)</h3>
+  <div class="ends"><span><b>MAX98357</b> pin</span><span>ESP32-S3 <b>(silkscreen GPIO)</b></span></div>
+  <div class="wires">
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">power</span>VIN<span class="dot d5v"></span></span>
+      <span class="wire w5v" data-sig="5 V"></span>
+      <span class="pin right esppin"><span class="dot d5v"></span>5V0<span class="lbl">(live)</span></span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">ground</span>GND<span class="dot dgnd"></span></span>
+      <span class="wire wgnd" data-sig="GND"></span>
+      <span class="pin right esppin"><span class="dot dgnd"></span>GND</span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">audio in</span>DIN<span class="dot dtx"></span></span>
+      <span class="wire wtx" data-sig="I²S DOUT→DIN"></span>
+      <span class="pin right esppin"><span class="dot dtx"></span>GPIO5<span class="lbl">(ESP data OUT)</span></span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">bit clock</span>BCLK<span class="dot dclk"></span></span>
+      <span class="wire wclk" data-sig="shared w/ mic"></span>
+      <span class="pin right esppin"><span class="dot dclk"></span>GPIO15<span class="lbl">(shared BCLK)</span></span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">word select</span>LRC<span class="dot dws"></span></span>
+      <span class="wire wws" data-sig="shared w/ mic"></span>
+      <span class="pin right esppin"><span class="dot dws"></span>GPIO16<span class="lbl">(shared LRC)</span></span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">enable</span>SD<span class="dot d3v"></span></span>
+      <span class="wire w3v" data-sig="&gt;1.4V = on"></span>
+      <span class="pin right esppin"><span class="dot d3v"></span>3V3<span class="lbl">(on; mono L+R/2)</span></span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">gain</span>GAIN<span class="dot dgnd"></span></span>
+      <span class="wire wgnd" data-sig="floating = 15 dB"></span>
+      <span class="pin right esppin"><span class="dot dgnd"></span>—<span class="lbl">leave floating (100k→GND = 12 dB)</span></span>
+    </div>
+  </div>
+  <p><span class="chip c5v">5 V power</span> <span class="chip ci2s">I²S out · shares mic clocks</span> &nbsp; New firmware — see integration plan below.</p>
+
+  <h3>Alternate — standalone speaker node</h3>
+  <p>If the amp is on its own board (no mic), keep the clock convention and pick a fresh data pin:</p>
+  <p class="mono" style="background:var(--panel-2);border:1px solid var(--hair);border-radius:10px;padding:.7rem .9rem;font-size:.86rem">
+    VIN → 5V0 &nbsp;·&nbsp; GND → GND &nbsp;·&nbsp; DIN → GPIO7 &nbsp;·&nbsp; BCLK → GPIO15 &nbsp;·&nbsp; LRC → GPIO16 &nbsp;·&nbsp; SD → 3V3 &nbsp;·&nbsp; GAIN → floating
+  </p>
+  <div class="note"><span class="t">SD is enable + channel-select, not just shutdown</span>Tie to 3V3 to turn on. The breakout's default divider outputs mono <code>(L+R)/2</code>. For a <strong>stereo pair</strong> (your two amps on one board sharing DIN/BCLK/LRC), set one amp Left and one Right via each SD-pin divider.</div>
+</section>
+
 <!-- ───────────────── SUMMARY ───────────────── -->
 <section class="card">
   <h2>One-glance summary</h2>
@@ -222,15 +276,22 @@
         <td class="c"><span class="chip cuart">UART 256k</span></td>
       </tr>
       <tr>
-        <td><strong>INMP441</strong><br><span style="font-size:.75rem;color:var(--text-secondary)">microphone</span></td>
+        <td><strong>INMP441</strong><br><span style="font-size:.75rem;color:var(--text-secondary)">microphone (in)</span></td>
         <td class="c"><span class="chip c3v">3V3</span></td>
         <td class="c">GND + L/R</td>
         <td><span class="mono">SCK→15 · WS→16 · SD→4</span></td>
-        <td class="c"><span class="chip ci2s">I²S</span></td>
+        <td class="c"><span class="chip ci2s">I²S in</span></td>
+      </tr>
+      <tr>
+        <td><strong>MAX98357</strong><br><span style="font-size:.75rem;color:var(--text-secondary)">amplifier (out)</span></td>
+        <td class="c"><span class="chip c5v">5V0</span></td>
+        <td class="c">GND</td>
+        <td><span class="mono">DIN→5 · BCLK→15 · LRC→16</span></td>
+        <td class="c"><span class="chip ci2s">I²S out</span></td>
       </tr>
     </tbody>
   </table></div>
-  <div class="note info"><span class="t">No pin conflict between radar &amp; mic</span>The radars use GPIO11/12; the mic uses GPIO15/16/4. They don't overlap — so a single ESP32-S3 <em>could</em> run one radar + the mic together on a future combo node without changing any of these assignments.</div>
+  <div class="note info"><span class="t">Pin plan across all devices</span>Radars use GPIO11/12 (UART). The mic (in) uses 15/16/4; the amp (out) reuses the same <strong>15/16 clocks</strong> and adds <strong>GPIO5</strong> for data-out. So one ESP32-S3 can run <em>radar + mic + speaker together</em> — full two-way audio sensing node — with zero pin collisions.</div>
   <h3>Wire-color convention (suggested, keep it consistent)</h3>
   <ul>
     <li><span style="color:var(--w-5v)">■</span> <strong>Red</strong> → 5V &nbsp;·&nbsp; <span style="color:var(--w-3v)">■</span> <strong>Orange</strong> → 3.3V &nbsp;·&nbsp; <span style="color:var(--w-gnd)">■</span> <strong>Black</strong> → GND</li>
@@ -239,6 +300,43 @@
   </ul>
 </section>
 
-<p class="foot">RuView standard build · pins verified against ruview-s3-ld2410c.yaml, ruview-s3-ld2450.yaml, audio_streamer_main.c / ruview-s3-mic-n2.yaml · go by silkscreen GPIO number</p>
+<!-- ───────────────── INTEGRATION PLAN ───────────────── -->
+<section class="card">
+  <h2>Integrating the speaker with RuView Sensing <span class="role">— closing the loop: sense → respond → listen</span></h2>
+  <p class="lead">Today RuView is <strong>inbound only</strong> (sensors → Pi). The MAX98357 adds an <strong>outbound</strong> path so the node can <em>respond</em> — the missing half of the elder-care graduated-response mission (detect a fall or distress, then speak to the person and listen for their answer).</p>
+
+  <h3>Where it plugs into the existing pipeline</h3>
+  <div class="flow"><pre>  EXISTING (inbound sensing)                         NEW (outbound response)
+  ┌───────────┐  UDP/MQTT  ┌────────────────────┐   MQTT   ┌──────────────────┐
+  │ ESP32-S3  │──audio────►│ Orange Pi           │─play───►│ ESP32-S3         │
+  │ INMP441   │  radar────►│  ruview-sensing     │ prompt  │ MAX98357 → 🔊    │
+  │ LD2410/50 │            │  ruview-audiod:3025 │         │ (same node = A)  │
+  └───────────┘            │  (YAMNet + fusion)  │◄─"I'm OK"┘  mic re-listens  │
+                           └─────────┬───────────┘   audio
+                                     │ escalate if no reply
+                                     ▼  app / caregiver notify</pre></div>
+
+  <h3>Design decisions</h3>
+  <div class="tblwrap"><table>
+    <thead><tr><th>Concern</th><th>Choice</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Command channel</strong> (Pi → speaker)</td><td><strong>MQTT</strong> topic <code>ruview/audio/&lt;node&gt;/play</code></td><td>mosquitto (:1883) is already on the Pi; ESPHome/ESP32 nodes already speak MQTT. No new transport.</td></tr>
+      <tr><td><strong>Firmware path</strong></td><td><strong>ESPHome</strong> <code>i2s_audio</code> + <code>speaker</code>/<code>media_player</code> (full-duplex bus shared with the mic)</td><td>Mature two-way stack; mic + speaker on one I²S bus; less custom C than extending the raw streamer.</td></tr>
+      <tr><td><strong>Audio content</strong></td><td>Pre-recorded prompts on-node for POC; Pi-side TTS later</td><td>Offline, instant, no cloud dependency for safety-critical prompts ("Are you OK?", "Calling for help").</td></tr>
+      <tr><td><strong>Trigger logic</strong></td><td>New responder in <code>ruview-sensing</code> / <code>ruview-audiod</code>: event → publish play → await mic reply → escalate</td><td>Keeps the decision in the sensing brain; the node stays a dumb actuator.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Phased plan</h3>
+  <div class="phase-row" style="display:flex;flex-direction:column;gap:.7rem;margin-top:.6rem">
+    <div class="note info" style="margin:0"><span class="t">Phase 1 — speaker brought up (hardware)</span>Wire per the map above; flash an ESPHome node with <code>i2s_audio</code> + <code>media_player</code>; play a test WAV via MQTT. Proves the amp + full-duplex bus with the mic.</div>
+    <div class="note info" style="margin:0"><span class="t">Phase 2 — command path in ruview-sensing</span>Add <code>POST /audio/announce {node, prompt}</code> to the sensing REST API → publishes the MQTT play topic. App/CLI can trigger a prompt on demand.</div>
+    <div class="note info" style="margin:0"><span class="t">Phase 3 — closed-loop response</span>Wire a real trigger (fall from radar / distress-sound from YAMNet) → announce check-in → listen on the mic for an "I'm OK" (keyword or button/app) within N seconds → if none, <strong>escalate</strong> to the app / caregiver. This is the graduated-response scenario end-to-end.</div>
+    <div class="note ok" style="margin:0"><span class="t">Phase 4 — ship it via OTA</span>Roll the two-way-audio firmware + the ruview-sensing responder through the goosebit/SWUpdate pipeline (see the OTA project plan). No new delivery mechanism needed.</div>
+  </div>
+  <div class="note"><span class="t">Open items to confirm before Phase 1</span>(1) ESPHome vs extend the C streamer for the mic+speaker node; (2) prompt set + language; (3) how the person signals "I'm OK" (voice keyword vs app vs physical button); (4) escalation target + timeout. These are product calls, tracked separately from the wiring.</div>
+</section>
+
+<p class="foot">RuView standard build · radar/mic pins verified against ruview-s3-ld2410c.yaml, ruview-s3-ld2450.yaml, audio_streamer_main.c / ruview-s3-mic-n2.yaml · MAX98357 = new integration (greenfield) · go by silkscreen GPIO number</p>
 
 </div>
