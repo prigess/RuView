@@ -69,6 +69,10 @@
     background: var(--surface-2); border-color: var(--steel);
     transform: translateY(-1px);
   }
+  /* single-sensor simplification path — the two cards that improve everything at once */
+  .card.simplify { border-color: rgba(110,95,204,0.55); box-shadow: 0 0 0 1px rgba(110,95,204,0.22); }
+  .card.simplify:hover, .card.simplify.active { border-color: var(--accent); }
+  .badge.simplify-badge { color: var(--accent); border-color: rgba(110,95,204,0.5); background: rgba(110,95,204,0.12); }
   .card .name { font-size: 15px; font-weight: 600; color: var(--ink); margin-bottom: 4px; }
   .card .sub  { font-size: 12px; color: var(--steel-pale); font-family: ui-monospace,"SF Mono",Menlo,monospace; }
   .card .desc { font-size: 12.5px; color: var(--ink-dim); margin-top: 10px; line-height: 1.5; }
@@ -172,6 +176,15 @@
     .status-note { grid-column: 1 / -1; background: rgba(255,212,168,0.05); border: 1px solid rgba(255,212,168,0.3);
       border-radius: 10px; padding: 12px 16px; font-size: 12.5px; color: var(--ink-dim); }
     .status-note b { color: var(--amber); }
+    /* single-sensor simplification spotlight */
+    .status-note.spotlight { background: rgba(110,95,204,0.10); border: 1px solid rgba(110,95,204,0.5); color: var(--ink); }
+    .status-note.spotlight b { color: var(--accent); }
+    .status-note.spotlight .sp-tag { display: inline-block; margin-right: 8px; padding: 2px 9px; border-radius: 20px;
+      font-size: 10.5px; font-weight: 700; letter-spacing: .5px; color: var(--accent);
+      background: rgba(110,95,204,0.16); border: 1px solid rgba(110,95,204,0.5); vertical-align: 1px; }
+    .status-note.spotlight ol { margin: 8px 0 4px; padding-left: 20px; }
+    .status-note.spotlight li { margin: 5px 0; }
+    .status-note.spotlight .cav { color: var(--coral); }
   </style>
 
   <div class="status-wrap">
@@ -237,6 +250,15 @@
                 <td><span class="pill m">M</span></td></tr>
           </tbody>
         </table>
+      </div>
+
+      <div class="status-note spotlight">
+        <span class="sp-tag">SIMPLIFY</span><b>Want one sensor that improves everything?</b> Two single-sensor paths trade parts-count for coverage:
+        <ol>
+          <li><b>Cheapest add (Tier ①):</b> <b>MLX90640</b> thermal array — one I²C part gives <b>count + fall + presence</b> at once (warm bodies even when still, person-on-floor shape, works in the dark / through smoke, privacy-safe). No vitals, no identity.</li>
+          <li><b>Deployment-grade (Tier ②/③):</b> one <b>4D imaging mmWave radar</b> (TI IWR6843 / Vayyar-class) collapses the <b>radar + vitals + fall</b> trio into a single device — count + live tracking + heart-rate/breathing + fall + presence, through blankets, in the dark, no lens. Needs the RK3588 NPU to run the model.</li>
+        </ol>
+        <span class="cav">The one thing neither can do alone: <b>person-ID</b> (who) — identity always needs an opt-in BLE/UWB wearable.</span> And note the trade-off: a single sensor simplifies wiring, but a second modality is what makes it <i>foolproof</i> (no single point of failure).
       </div>
 
       <div class="status-note">
@@ -2182,7 +2204,8 @@ function renderCatalog(filterGroup) {
     const grid = document.createElement('div'); grid.className = 'grid';
     items.forEach((s, idx) => {
       const card = document.createElement('div');
-      card.className = 'card';
+      const isSimplify = /MLX90640|IWR6843/.test(s.name);
+      card.className = 'card' + (isSimplify ? ' simplify' : '');
       card.dataset.idx = sensors.indexOf(s);
       const consentLabel =
         s.consent === 'default'  ? 'default' :
@@ -2197,6 +2220,7 @@ function renderCatalog(filterGroup) {
           <span class="badge cost">${s.cost}</span>
           <span class="badge ease-${s.ease}">${s.ease === 'easy' ? 'easy' : s.ease === 'med' ? 'medium' : 'tricky'}</span>
           ${consentLabel ? `<span class="badge consent-${s.consent}">${consentLabel}</span>` : ''}
+          ${isSimplify ? `<span class="badge simplify-badge">◆ single-sensor path</span>` : ''}
         </div>
       `;
       card.addEventListener('mouseover', () => { if (pinnedId == null) showDetail(s, false); });
