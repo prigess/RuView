@@ -710,7 +710,12 @@ fn mqtt_loop(cfg: C6RadarConfig, state: Arc<Mutex<RadarState>>, start: Instant) 
         None => return,
     };
     let prefix = cfg.mqtt_topic_prefix.trim_end_matches('/').to_string();
-    let client_id = format!("ruview-c6-bridge-{}", std::process::id());
+    // Client-id MUST be unique per bridge: the C6, LD2410 (and any future)
+    // bridges all run in the same process, so keying only on process::id()
+    // gave every bridge the same id — mosquitto then evicts the older session
+    // on each new connect, and the bridges fight in an endless reconnect loop.
+    // The topic prefix is unique per configured bridge, so fold it in.
+    let client_id = format!("ruview-bridge-{}-{}", prefix, std::process::id());
     info!(
         "C6 MQTT: connecting to {host}:{} client={} prefix={}",
         cfg.mqtt_port, client_id, prefix
