@@ -12,6 +12,9 @@ case "$1" in
         fi
         ;;
     purge)
+        # Drop the auto-generated host allowlist drop-in (postinst owns it).
+        rm -rf /etc/systemd/system/ruview-sensing.service.d/allowed-hosts.conf \
+               /etc/systemd/system/ruview-sensing.service.d 2>/dev/null || true
         if [ -d /run/systemd/system ]; then
             systemctl disable ruview-sensing.service >/dev/null 2>&1 || true
             systemctl daemon-reload >/dev/null 2>&1 || true
