@@ -8,8 +8,9 @@ struct VitalSignsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                let hasAnyVitals = viewModel.bleHrReachable || viewModel.radarReachable
-                    || viewModel.snapshot?.vitalSigns != nil
+                let csiVitals = viewModel.snapshot?.vitalSigns
+                let csiUsable = csiVitals.map(csiVitalsUsable) ?? false
+                let hasAnyVitals = viewModel.bleHrReachable || viewModel.radarReachable || csiUsable
 
                 // Only show "measuring" when a vitals source is actually connected.
                 if viewModel.isMeasuring && (viewModel.radarReachable || viewModel.bleHrReachable) {
@@ -22,7 +23,7 @@ struct VitalSignsView: View {
                     bleHeartCard
                 }
 
-                if let vitals = viewModel.snapshot?.vitalSigns {
+                if let vitals = csiVitals, csiUsable {
                     SectionHeader(title: "Vital Signs", trailing: liveTimestamp)
                     heartRateCard(vitals: vitals)
                     breathingCard(vitals: vitals)
@@ -31,7 +32,7 @@ struct VitalSignsView: View {
                 }
 
                 if viewModel.radarReachable {
-                    SectionHeader(title: "60 GHz Radar (Node 7)")
+                    SectionHeader(title: "60 GHz Radar (C6)")
                     radarCard
                 }
 
@@ -58,6 +59,18 @@ struct VitalSignsView: View {
 
     private var liveTimestamp: String {
         viewModel.isLiveDataFlowing ? "Updated just now" : "Waiting for data"
+    }
+
+    /// The WiFi-CSI vitals section is worth showing only when at least one
+    /// metric actually has data. When both are `.unavailable` the cards would
+    /// render a false-alarm "Sensor failure — no recent data" even though the
+    /// C6 mmWave card below is live — so hide the whole section in that case.
+    private func csiVitalsUsable(_ vitals: VitalSigns) -> Bool {
+        switch (viewModel.heartRateDisplay(vitals: vitals),
+                viewModel.breathingDisplay(vitals: vitals)) {
+        case (.unavailable, .unavailable): return false
+        default: return true
+        }
     }
 
     private var disclaimerFooter: some View {
