@@ -155,8 +155,9 @@ binary_sensor:
     has_target:
       name: "Person Present"
       id: person_present
-      filters:
-        - delayed_off: 2s   # ride out brief drop-outs
+      # No delayed_off here. The c6_radar_bridge on the Pi already absorbs
+      # 1 s of radar jitter via PRESENCE_STICKY_WINDOW; an additional 2 s
+      # filter at this layer just doubled the walk-out latency to ~4 s.
 
   - platform: status
     name: "Status"
