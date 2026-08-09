@@ -48,7 +48,7 @@ final class C6RadarClient: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private let urlSession: URLSession
 
-    private let pollInterval: TimeInterval = 1.5
+    private let pollInterval: TimeInterval = 0.5
     private var consecutiveFailures: Int = 0
     private let reachableMaxFailures: Int = 2
 
@@ -329,7 +329,7 @@ final class LD2450Client: ObservableObject {
     private let urlSession: URLSession
 
     // Snappier than the C6 (1.5s) because X/Y tracking should feel live.
-    private let pollInterval: TimeInterval = 0.7
+    private let pollInterval: TimeInterval = 0.5
     private var consecutiveFailures: Int = 0
 
     // LD2450 rated maximum range is 6 m. Targets reported beyond that are not
@@ -563,7 +563,7 @@ final class LD2410Client: ObservableObject {
     private var host: String = ""
     private var pollTask: Task<Void, Never>?
     private let urlSession: URLSession
-    private let pollInterval: TimeInterval = 1.0
+    private let pollInterval: TimeInterval = 0.5
     private var consecutiveFailures: Int = 0
     private let reachableMaxFailures: Int = 3
 
@@ -677,7 +677,7 @@ final class MicClient: ObservableObject {
     private var host: String = ""
     private var pollTask: Task<Void, Never>?
     private let urlSession: URLSession
-    private let pollInterval: TimeInterval = 1.0
+    private let pollInterval: TimeInterval = 0.5
     private var consecutiveFailures: Int = 0
     private let reachableMaxFailures: Int = 3
 
@@ -789,7 +789,7 @@ final class AudioClient: ObservableObject {
     private let port: Int = 3025
     private var pollTask: Task<Void, Never>?
     private let urlSession: URLSession
-    private let pollInterval: TimeInterval = 1.0
+    private let pollInterval: TimeInterval = 0.5
     private var consecutiveFailures = 0
     private let maxFailures = 3
 
@@ -982,7 +982,7 @@ final class CountClient: ObservableObject {
     private let port: Int = 3028
     private var pollTask: Task<Void, Never>?
     private let urlSession: URLSession
-    private let pollInterval: TimeInterval = 1.5
+    private let pollInterval: TimeInterval = 0.75
     private var consecutiveFailures = 0
     private let maxFailures = 3
 
