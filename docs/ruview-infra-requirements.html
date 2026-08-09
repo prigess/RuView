@@ -1,0 +1,205 @@
+<title>RuView Sensing — Infrastructure Requirements</title>
+<style>
+  :root{
+    --primary:#4682B4; --primary-light:#5F9EA0; --primary-dark:#2F4F6F;
+    --secondary:#87CEEB; --success:#3CB371; --warning:#DAA520; --danger:#CD5C5C;
+    --dark:#1C2833; --dark-mid:#2C3E50; --light:#ECF0F1; --text-secondary:#B0C4DE;
+    --panel:rgba(27,38,59,.9); --panel-2:rgba(0,0,0,.24); --hair:rgba(135,206,235,.18);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+    background:linear-gradient(135deg,var(--dark) 0%,var(--dark-mid) 100%);
+    color:var(--light);line-height:1.55;min-height:100vh}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 1.4rem 4rem}
+  header{text-align:center;padding:2.6rem 1.4rem 2rem;
+    background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 55%,var(--primary-light) 100%);
+    border-bottom:3px solid var(--secondary);border-radius:0 0 32px 32px;margin-bottom:1.4rem}
+  header h1{font-size:2rem;letter-spacing:.2px;text-wrap:balance}
+  header .sub{opacity:.92;margin-top:.45rem;font-size:1rem;max-width:680px;margin-inline:auto}
+  header .meta{margin-top:.9rem;font-size:.78rem;opacity:.9;display:flex;gap:1.2rem;justify-content:center;flex-wrap:wrap}
+  nav.toc{position:sticky;top:0;z-index:50;display:flex;gap:.4rem;flex-wrap:wrap;justify-content:center;
+    background:rgba(27,38,59,.96);backdrop-filter:blur(6px);padding:.7rem .8rem;border-bottom:2px solid var(--primary);
+    border-radius:12px;margin-bottom:1.6rem}
+  nav.toc a{color:var(--secondary);text-decoration:none;font-size:.78rem;padding:.28rem .6rem;border-radius:999px;transition:.2s}
+  nav.toc a:hover{background:var(--primary);color:#fff}
+  section.card{background:var(--panel);border:1px solid var(--hair);border-radius:16px;padding:1.5rem 1.6rem;margin-bottom:1.4rem}
+  h2{font-size:1.35rem;color:#fff;border-bottom:3px solid var(--primary-light);padding-bottom:.4rem;margin-bottom:.8rem;display:inline-block}
+  h3{font-size:1.02rem;color:var(--secondary);margin:1.1rem 0 .5rem;text-transform:uppercase;letter-spacing:.5px}
+  p{margin:.45rem 0}p.lead{color:var(--text-secondary);font-size:1.02rem}
+  strong{color:#fff}
+  code{font-family:'SF Mono',Consolas,monospace;background:rgba(0,0,0,.35);color:#bfe0f5;padding:.06rem .36rem;border-radius:5px;font-size:.85em}
+  ul,ol{margin:.4rem 0 .4rem 1.2rem}li{margin:.28rem 0}
+  .tblwrap{overflow-x:auto;margin:.9rem 0;border-radius:11px;border:1px solid var(--hair)}
+  table{border-collapse:collapse;width:100%;font-size:.84rem;min-width:560px}
+  th,td{text-align:left;padding:.55rem .7rem;border-bottom:1px solid rgba(135,206,235,.12);vertical-align:top}
+  th{background:rgba(70,130,180,.22);color:#dff0fb;font-weight:700;text-transform:uppercase;font-size:.68rem;letter-spacing:.5px}
+  tr:last-child td{border-bottom:none}
+  td.c{text-align:center}
+  .mono{font-family:'SF Mono',Consolas,monospace}
+  .pill{font-size:.66rem;font-weight:700;padding:.1rem .5rem;border-radius:999px;white-space:nowrap}
+  .p-npu{background:rgba(110,95,204,.22);color:#c9bff0} .p-cpu{background:rgba(95,158,160,.24);color:#a9e0e0}
+  .p-ok{background:rgba(60,179,113,.2);color:#8fe0b4} .p-min{background:rgba(218,165,32,.2);color:#f0d089}
+  .note{border-left:4px solid var(--warning);background:rgba(218,165,32,.13);padding:.8rem 1rem;border-radius:0 9px 9px 0;margin:.9rem 0;font-size:.92rem}
+  .note.info{border-left-color:var(--primary);background:rgba(70,130,180,.15)}
+  .note.ok{border-left-color:var(--success);background:rgba(60,179,113,.13)}
+  .note.danger{border-left-color:var(--danger);background:rgba(205,92,92,.14)}
+  .note .t{font-weight:700;color:#fff;display:block;margin-bottom:.2rem}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}header .meta{gap:.5rem}}
+  .kpi{display:flex;gap:1rem;flex-wrap:wrap;margin:.6rem 0}
+  .kpi div{flex:1;min-width:130px;background:var(--panel-2);border:1px solid var(--hair);border-radius:12px;padding:.8rem 1rem}
+  .kpi .n{font-size:1.5rem;font-weight:800;color:#fff}
+  .kpi .l{font-size:.72rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px}
+  .foot{text-align:center;color:var(--text-secondary);font-size:.78rem;margin-top:1.6rem;opacity:.8}
+  .meas{font-size:.72rem;color:var(--success-light);color:#8fe0b4}
+</style>
+
+<header>
+  <h1>RuView Sensing — Infrastructure Requirements</h1>
+  <div class="sub">What it takes to run the RuView sensing stack on an edge node <strong>efficiently</strong> (right processor for each job) and <strong>promptly</strong> (bounded latency), for the Norim longevity platform.</div>
+  <div class="meta">
+    <span>Reference platform: Orange Pi 5 Pro (RK3588S)</span>
+    <span>Numbers measured on the live node, 2026-08-08</span>
+  </div>
+</header>
+
+<div class="wrap">
+<nav class="toc">
+  <a href="#tldr">Summary</a><a href="#hw">1 · Hardware</a><a href="#compute">2 · Compute allocation</a>
+  <a href="#services">3 · Services &amp; budget</a><a href="#sw">4 · Software base</a><a href="#net">5 · Network</a>
+  <a href="#latency">6 · Latency targets</a><a href="#eff">7 · Efficiency rules</a><a href="#not">8 · Not on device</a>
+</nav>
+
+<section class="card" id="tldr">
+  <h2>Summary</h2>
+  <p class="lead">RuView sensing runs comfortably on a single RK3588 edge node. The infra job is to put each workload on the <em>right</em> processor and keep the request path short. Measured headroom on the live node:</p>
+  <div class="kpi">
+    <div><div class="n">0.6</div><div class="l">load avg / 8 cores</div></div>
+    <div><div class="n">&lt;25 ms</div><div class="l">every endpoint</div></div>
+    <div><div class="n">6 TOPS</div><div class="l">NPU (3 cores, idle)</div></div>
+    <div><div class="n">14 GB</div><div class="l">RAM free of 15</div></div>
+  </div>
+  <div class="note ok"><span class="t">Headline</span>The node is <strong>not compute-bound</strong> — the sensing runtime uses &lt;1 core. "Efficient &amp; prompt" is therefore about <strong>allocation</strong> (offload ML to the NPU, keep DSP on CPU) and <strong>the request path</strong> (LAN-bound, tight poll cadence, no runaway processes), not about raw horsepower.</div>
+</section>
+
+<section class="card" id="hw">
+  <h2>1 · Hardware requirements</h2>
+  <div class="tblwrap"><table>
+    <thead><tr><th>Resource</th><th>Minimum</th><th>Recommended</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td><strong>SoC</strong></td><td>RK3588S (4×A76 + 4×A55)</td><td>RK3588S/RK3588</td><td>DSP + orchestration on CPU; must have the on-die NPU</td></tr>
+      <tr><td><strong>NPU</strong></td><td>RK3588 3-core, 6 TOPS</td><td>same</td><td>all CNN inference offloads here — <span class="p-npu pill">measured 308 inf/s resnet18 @ 3.24 ms</span></td></tr>
+      <tr><td><strong>RAM</strong></td><td>4 GB</td><td>8–16 GB</td><td>runtime uses &lt;1 GB; headroom for models + on-device model conversion</td></tr>
+      <tr><td><strong>Storage</strong></td><td>16 GB</td><td>≥32 GB (eMMC/NVMe &gt; SD)</td><td>OS + runtimes + models (~few GB); eMMC/NVMe for I/O + endurance</td></tr>
+      <tr><td><strong>Network</strong></td><td>Wired 100M or 2.4/5 GHz Wi-Fi</td><td>Wired GbE (stable IP)</td><td>sensors + app talk over LAN; wired avoids DHCP/roam drops</td></tr>
+      <tr><td><strong>GPU</strong></td><td colspan="2">Not required</td><td>no rendering/GPU-compute in the sensing path</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Sensor tier (per node)</h3>
+  <p>ESP32-S3 nodes over Wi-Fi: <strong>LD2450</strong> (X/Y tracking), <strong>LD2410C</strong> (presence/distance), <strong>INMP441</strong> mic; <strong>ESP32-C6 + MR60BHA2</strong> (60 GHz vitals). Optional BLE HR strap. Each is a few $; the Pi is the brain.</p>
+</section>
+
+<section class="card" id="compute">
+  <h2>2 · Compute allocation — the efficiency core</h2>
+  <p class="lead">"Efficient" = the right silicon for each job. The rule: <strong>neural nets → NPU; signal processing &amp; orchestration → CPU; nothing idles the NPU while the CPU does ML.</strong></p>
+  <div class="tblwrap"><table>
+    <thead><tr><th>Workload</th><th>Runs on</th><th>Runtime</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>CSI count / pose / fall CNNs</td><td class="c"><span class="pill p-npu">NPU</span></td><td>RKNN (rknn-toolkit-lite2)</td><td>convert model → <code>.rknn</code>; runs on all 3 cores</td></tr>
+      <tr><td>Radar DSP, CSI processing, fusion</td><td class="c"><span class="pill p-cpu">CPU</span></td><td>Rust (sensing-server)</td><td>FFT/vector math — not NN ops; stays on CPU</td></tr>
+      <tr><td>Audio sound-class (YAMNet)</td><td class="c"><span class="pill p-cpu">CPU</span></td><td>tflite_runtime</td><td>only 4.7% CPU; FFT/mel frontend isn't NPU-mappable — leave on CPU</td></tr>
+      <tr><td>Vitals trust-gating, presence hold, bridges</td><td class="c"><span class="pill p-cpu">CPU</span></td><td>Rust / Python</td><td>light control logic</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note info"><span class="t">NPU engagement rule</span><strong>Every convertible CNN runs on the NPU</strong> (unsupported ops fall back to CPU). The NPU was measured idle (0%) while models ran on CPU — offloading them frees CPU for DSP and cuts inference latency. Monitor with <code>cat /sys/kernel/debug/rknpu/load</code>. Model <em>conversion</em> (→<code>.rknn</code>) is a build-time step (runs on the Pi or x86 CI), never in the request path.</div>
+</section>
+
+<section class="card" id="services">
+  <h2>3 · Runtime services, ports &amp; resource budget</h2>
+  <div class="tblwrap"><table>
+    <thead><tr><th>Service</th><th>Port(s)</th><th>Role</th><th>Measured cost</th></tr></thead>
+    <tbody>
+      <tr><td><code>ruview-sensing</code></td><td>3022 REST · 3023 WS · 5005 UDP</td><td>fusion + REST/WS + UI; radar ingestion bridges</td><td class="meas">~2% CPU</td></tr>
+      <tr><td><code>ruview-audiod</code></td><td>3025 REST · 5006 UDP</td><td>mic PCM → YAMNet → sound class</td><td class="meas">~5% CPU</td></tr>
+      <tr><td><code>ruview-npu</code></td><td>3024 REST</td><td>RKNN inference server (NPU)</td><td class="meas">NPU-bound</td></tr>
+      <tr><td><code>ruview-hrd</code> / <code>ruview-countd</code></td><td>3027 / 3028</td><td>BLE HR decode · CSI count</td><td class="meas">light</td></tr>
+      <tr><td><code>mosquitto</code></td><td>1883</td><td>MQTT broker (radar node ingest)</td><td class="meas">negligible</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><span class="t">Bind + budget</span>All HTTP/WS bind <code>0.0.0.0</code> (LAN) with a host-header allowlist. Total steady-state CPU for the full stack is well under one core — the RK3588 has 8. Provision RAM for concurrent model residency, not for the daemons.</div>
+</section>
+
+<section class="card" id="sw">
+  <h2>4 · Software base infra</h2>
+  <div class="grid2">
+    <div>
+      <h3>OS &amp; system</h3>
+      <ul>
+        <li>Ubuntu 22.04 aarch64 (glibc 2.35)</li>
+        <li>Rockchip BSP kernel (5.10-rk3588) — ships the <strong>RKNPU driver</strong> (v0.9.2, NPU via DRM render node — no <code>/dev/rknpu0</code> needed)</li>
+        <li><code>mosquitto</code>, <code>bluez</code>, <code>libgomp1</code>/<code>liblapack</code></li>
+      </ul>
+    </div>
+    <div>
+      <h3>Three ML runtimes</h3>
+      <ul>
+        <li><strong>RKNN</strong> — <code>librknnrt.so</code> + <code>rknn-toolkit-lite2</code> (version-matched, e.g. 2.3.2); NPU inference</li>
+        <li><strong>tflite</strong> — python venv + <strong><code>numpy&lt;2</code></strong> (numpy 2 breaks tflite) + <code>tflite-runtime</code>; YAMNet</li>
+        <li><strong>onnxruntime</strong> (python, optional) — ONNX models not converted to RKNN</li>
+      </ul>
+    </div>
+  </div>
+  <p><strong>Model store:</strong> <code>/opt/ruview/models/</code> — <code>.rknn</code>/<code>.tflite</code>/<code>.onnx</code> <strong>vendored/delivered, never downloaded at runtime.</strong> <strong>Rust build:</strong> pinned <code>rustc 1.89</code> (or ship a prebuilt arm64 binary so the device carries no toolchain).</p>
+  <div class="note info"><span class="t">Base vs app split (for OTA)</span><strong>Base</strong> (install-once / golden image): OS, kernel+NPU driver, the 3 ML runtimes, mosquitto, bluez, model store, toolchain. <strong>App</strong> (OTA-updated): the sensing daemons + models. Keeps updates fast, offline, deterministic.</div>
+</section>
+
+<section class="card" id="net">
+  <h2>5 · Network requirements</h2>
+  <ul>
+    <li><strong>Single LAN</strong> for Pi + all sensors + the app. Stable Pi address — <strong>wired static</strong> or DHCP reservation; prefer <strong>mDNS hostname</strong> so a router/subnet change doesn't break sensor→Pi links.</li>
+    <li><strong>Ports open on the LAN:</strong> 3022/3023 (app), 3024/3025/3027/3028 (feature REST), 1883 (MQTT from radar nodes), 5005/5006 (UDP CSI/mic).</li>
+    <li><strong>Bandwidth</strong> is tiny: mic PCM ≈ 50 pkt/s (640 B), radar MQTT + REST are sparse. Any home LAN suffices; Wi-Fi packet loss (not bandwidth) is the risk for the mic — keep the mic node near the AP.</li>
+    <li><strong>mDNS/multicast</strong> must be allowed (home routers: yes; enterprise/guest: often blocked → fall back to DHCP reservation).</li>
+  </ul>
+</section>
+
+<section class="card" id="latency">
+  <h2>6 · Latency targets (promptly)</h2>
+  <p class="lead">"Prompt" = bounded end-to-end from event → app. The path is: sensor → (ingest) → server/daemon → app poll/WS. Targets, with measured baselines:</p>
+  <div class="tblwrap"><table>
+    <thead><tr><th>Stage</th><th>Target</th><th>Measured</th></tr></thead>
+    <tbody>
+      <tr><td>Any REST/WS request round-trip (LAN)</td><td>&lt; 50 ms</td><td class="meas">8–25 ms ✓</td></tr>
+      <tr><td>App refresh cadence (live cards)</td><td>≤ 0.5 s</td><td class="meas">0.5 s (tuned from 1.0–1.5 s) ✓</td></tr>
+      <tr><td>CNN inference (per frame, NPU)</td><td>&lt; 10 ms</td><td class="meas">3.24 ms (resnet18) ✓</td></tr>
+      <tr><td>Presence assert / clear</td><td>1–3 s</td><td>sticky window + node filter tuned</td></tr>
+      <tr><td>Vitals stabilization (mmWave)</td><td>~30 s warmup</td><td>trust-gated</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note ok"><span class="t">The lag lever</span>With sub-25 ms endpoints, perceived lag is dominated by <strong>poll cadence</strong>, not compute — tighten client poll intervals before reaching for more hardware.</div>
+</section>
+
+<section class="card" id="eff">
+  <h2>7 · Efficiency &amp; promptness rules (operational)</h2>
+  <ol>
+    <li><strong>Offload NN to the NPU.</strong> Any CNN in the pipeline → <code>.rknn</code>; keep the CPU for DSP + orchestration.</li>
+    <li><strong>Tight, cheap poll cadence.</strong> Live cards ~0.5 s; endpoints are &lt;25 ms so this is nearly free.</li>
+    <li><strong>Guard against runaway processes.</strong> A stuck <code>agetty</code> was found pegging a full core at 99% — audit <code>top</code>; disable unused serial gettys. One rogue process silently taxes the whole node.</li>
+    <li><strong>LAN-bound, no cloud in the loop.</strong> All inference + fusion on-device; no runtime downloads (models vendored). Sub-second, offline, private.</li>
+    <li><strong>Version-lock the ML runtimes.</strong> <code>rknn-toolkit-lite2</code> ↔ <code>librknnrt</code> ↔ conversion toolkit must match; <code>numpy&lt;2</code> for tflite.</li>
+    <li><strong>Right-size the hold/gate windows.</strong> De-split, presence-hold, and trust-gates trade latency for stability — tune per scenario, don't stack redundant filters (a doubled <code>delayed_off</code> added ~2 s of latency).</li>
+  </ol>
+</section>
+
+<section class="card" id="not">
+  <h2>8 · Explicitly NOT on the sensing node</h2>
+  <ul>
+    <li><strong>No desktop GUI stack</strong> (GTK/libsoup/WebKit) — the desktop app is a separate x86 product.</li>
+    <li><strong>No Rust <code>candle</code>/<code>ort</code>(ONNX)/<code>gemm</code> ML crates</strong> — that's the off-device (x86/CI) training path; doesn't build on aarch64 and isn't the device's inference route.</li>
+    <li><strong>Full model-conversion toolkit is build-time only</strong> — it may run on the Pi for convenience, but the deployed runtime carries only the lite runtime + the <code>.rknn</code> output.</li>
+    <li><strong>No compiler on a production device</strong> — ship prebuilt binaries via OTA.</li>
+  </ul>
+</section>
+
+<p class="foot">RuView Sensing infrastructure requirements · reference node RK3588S OPi 5 Pro · figures measured on the live deployment 2026-08-08 · efficient = right processor per job · prompt = short request path</p>
+</div>
