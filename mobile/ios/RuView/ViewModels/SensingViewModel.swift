@@ -16,11 +16,11 @@ final class SensingViewModel: ObservableObject {
     @Published var radarReachable: Bool = false
 
     /// IP address of the ESP32-C6 ESPHome node. Defaults to the current
-    /// NorimNetwork DHCP lease; flip to the static reservation once it's
+    /// Firefly (home) DHCP lease; flip to the static reservation once it's
     /// pinned in the router. Stored in UserDefaults under "c6RadarHost"
     /// so a future settings screen can edit it without changing this class.
     private var c6RadarHost: String {
-        UserDefaults.standard.string(forKey: "c6RadarHost") ?? "192.168.8.228"
+        UserDefaults.standard.string(forKey: "c6RadarHost") ?? "192.168.7.223"
     }
 
     // MARK: - LD2450 24GHz tracking radar (direct ESPHome poller)

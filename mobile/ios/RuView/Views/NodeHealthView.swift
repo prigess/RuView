@@ -174,7 +174,7 @@ struct NodeHealthView: View {
                 // C6 (MR60BHA2) 60 GHz vitals radar — direct-poll, vitals-only.
                 C6NodeCard(reachable: viewModel.radarReachable,
                            reading: viewModel.radarReading,
-                           mac: "58:E6:C5:13:5A:9C")
+                           mac: "58:E6:C5:19:A4:40")
                 // BLE HR strap — bonus node, only shown when a strap is paired.
                 if bleHrOnline {
                     BLEHRNodeCard(reading: viewModel.bleHeartReading)
