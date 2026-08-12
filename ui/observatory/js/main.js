@@ -8,6 +8,7 @@
  * - Dot-matrix mist body mass, particle trails, WiFi waves, signal field
  * - Reflective floor, settings dialog, and practical data HUD
  */
+import { withWsTicket } from '../../services/ws-ticket.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
@@ -130,10 +131,6 @@ class Observatory {
     // WebSocket for live data — always try auto-detect on startup
     this._ws = null;
     this._liveData = null;
-    this._wsUrl = null;           // Store URL for reconnection
-    this._wsReconnectAttempts = 0;
-    this._wsMaxReconnectAttempts = 5;
-    this._wsReconnectTimer = null;
     this._autoDetectLive();
 
     // Input
@@ -440,126 +437,65 @@ class Observatory {
   // ---- WebSocket live data ----
 
   _autoDetectLive() {
-    // If we already have a URL configured, connect directly without a health check.
-    // The default URL is derived from window.location.hostname at module load time,
-    // so it is always correct when the page is served by the sensing-server itself.
-    if (this.settings.wsUrl) {
-      console.log('[Observatory] Connecting to configured WS:', this.settings.wsUrl);
-      this.settings.dataSource = 'ws';
-      this._connectWS(this.settings.wsUrl);
-      return;
-    }
-
-    // Discovery fallback: probe health endpoints on common ports then build WS URL.
+    // Probe sensing server health on same origin, then common ports
     const host = window.location.hostname || 'localhost';
-    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const candidates = [
-      `${wsProto}//${window.location.host}/ws/sensing`,   // same origin
-      `${wsProto}//${host}:3022/ws/sensing`,              // sensing-server HTTP port
-      `${wsProto}//${host}:3023/ws/sensing`,              // sensing-server WS-only port
-      `${wsProto}//${host}:8765/ws/sensing`,              // legacy port
+      window.location.origin,                   // same origin (e.g. :3000)
+      `http://${host}:8765`,                     // default WS port
+      `http://${host}:3000`,                     // default HTTP port
     ];
+    // Deduplicate
     const unique = [...new Set(candidates)];
 
-    let probeIdx = 0;
-    let found = false;
-
-    const tryNextWs = () => {
-      if (found || probeIdx >= unique.length) {
-        if (!found) console.log('[Observatory] No sensing server detected, using demo mode');
+    const tryNext = (i) => {
+      if (i >= unique.length) {
+        console.log('[Observatory] No sensing server detected, using demo mode');
         return;
       }
-      const url = unique[probeIdx++];
-      const probe = new WebSocket(url);
-      const timer = setTimeout(() => { if (probe.readyState !== WebSocket.OPEN) probe.close(); }, 2000);
-      probe.onopen = () => {
-        clearTimeout(timer);
-        found = true;
-        probe.close();
-        console.log('[Observatory] Sensing server detected at', url);
-        this.settings.dataSource = 'ws';
-        this.settings.wsUrl = url;
-        this._connectWS(url);
-      };
-      probe.onerror = () => {};
-      probe.onclose = () => { clearTimeout(timer); if (!found) tryNextWs(); };
+      const base = unique[i];
+      fetch(`${base}/health`, { signal: AbortSignal.timeout(1500) })
+        .then(r => r.ok ? r.json() : Promise.reject())
+        .then(data => {
+          if (data && data.status === 'ok') {
+            const wsProto = base.startsWith('https') ? 'wss:' : 'ws:';
+            const urlObj = new URL(base);
+            const wsUrl = `${wsProto}//${urlObj.host}/ws/sensing`;
+            console.log('[Observatory] Sensing server detected at', base, '→', wsUrl);
+            this.settings.dataSource = 'ws';
+            this.settings.wsUrl = wsUrl;
+            void this._connectWS(wsUrl);
+          } else {
+            tryNext(i + 1);
+          }
+        })
+        .catch(() => tryNext(i + 1));
     };
-    tryNextWs();
+    tryNext(0);
   }
 
-  _connectWS(url) {
-    this._disconnectWS(false);  // don't reset reconnect counter; only reset on success (onopen)
-    this._wsUrl = url;  // Store for reconnection
+  // async: `/ws/sensing` is gated (ADR-272); mint a single-use ticket first.
+  async _connectWS(url) {
+    this._disconnectWS();
+    let wsUrl = url;
+    try { wsUrl = await withWsTicket(url); } catch { /* auth off or pre-ADR-272 server */ }
     try {
-      this._ws = new WebSocket(url);
+      this._ws = new WebSocket(wsUrl);
       this._ws.onopen = () => {
         console.log('[Observatory] WebSocket connected');
-        this._wsReconnectAttempts = 0;  // Reset on successful connection
         this._hud.updateSourceBadge('ws', this._ws);
       };
-      this._ws.onmessage = (evt) => {
-        try {
-          const msg = JSON.parse(evt.data);
-          // Only use SensingUpdate messages (have timestamp + features + classification).
-          // Ignore edge_vitals, wasm_event, and other message types.
-          if (msg.type === 'edge_vitals' || msg.type === 'wasm_event' || msg.type === 'pose_data') {
-            return; // Skip non-SensingUpdate messages
-          }
-          // SensingUpdate should have timestamp, features, and classification
-          if (msg.timestamp && msg.features && msg.classification) {
-            this._liveData = msg;
-          }
-        } catch {}
-      };
+      this._ws.onmessage = (evt) => { try { this._liveData = JSON.parse(evt.data); } catch {} };
       this._ws.onclose = () => {
+        console.log('[Observatory] WebSocket closed, falling back to demo');
         this._ws = null;
-        this._scheduleReconnect();
+        this.settings.dataSource = 'demo';
+        this._hud.updateSourceBadge('demo', null);
       };
       this._ws.onerror = () => {};
     } catch {}
   }
 
-  _scheduleReconnect() {
-    if (this._wsReconnectTimer) {
-      clearTimeout(this._wsReconnectTimer);
-    }
-
-    this._wsReconnectAttempts++;
-
-    if (this._wsReconnectAttempts > this._wsMaxReconnectAttempts) {
-      // Reset counter and retry auto-detect after 30s — don't permanently lock to demo.
-      console.log('[Observatory] Max reconnect attempts reached, retrying auto-detect in 30s');
-      this._wsReconnectAttempts = 0;
-      this._hud.updateSourceBadge('reconnecting', null);
-      this._wsReconnectTimer = setTimeout(() => this._autoDetectLive(), 30000);
-      return;
-    }
-
-    // Exponential backoff: 1s, 2s, 4s, 8s, 16s
-    const delay = Math.min(1000 * Math.pow(2, this._wsReconnectAttempts - 1), 16000);
-    console.log(`[Observatory] WebSocket closed, reconnecting in ${delay/1000}s (attempt ${this._wsReconnectAttempts}/${this._wsMaxReconnectAttempts})`);
-
-    // Show reconnecting status in the HUD
-    this._hud.updateSourceBadge('reconnecting', null);
-
-    this._wsReconnectTimer = setTimeout(() => {
-      if (this._wsUrl) {
-        console.log('[Observatory] Attempting to reconnect...');
-        this._connectWS(this._wsUrl);
-      }
-    }, delay);
-  }
-
-  _disconnectWS(resetCounter = true) {
-    // Clear any pending reconnect timer
-    if (this._wsReconnectTimer) {
-      clearTimeout(this._wsReconnectTimer);
-      this._wsReconnectTimer = null;
-    }
-    // Only reset the reconnect counter when the user explicitly disconnects.
-    // Scheduled reconnect attempts call _connectWS (which calls _disconnectWS(false))
-    // and must not reset the counter, otherwise the counter never reaches maxAttempts.
-    if (resetCounter) this._wsReconnectAttempts = 0;
+  _disconnectWS() {
     if (this._ws) { this._ws.close(); this._ws = null; }
     this._liveData = null;
   }

@@ -1,6 +1,15 @@
 # Architecture Decision Records
 
-This folder contains 44 Architecture Decision Records (ADRs) that document every significant technical choice in the RuView / WiFi-DensePose project.
+Latest proposed decisions:
+
+- [ADR-187: archive/v1 deprecation + model-weights honest labeling](ADR-187-archive-v1-deprecation-honest-labeling.md) (refs #509, #1125)
+- [ADR-186: Training progress API — wire the orphaned in-server trainer to /ws/train/progress](ADR-186-training-progress-api.md) (refs #1233)
+- [ADR-185: Python P6 SOTA bindings — AETHER, MERIDIAN, MAT](ADR-185-python-p6-sota-bindings.md)
+- [ADR-184: ADR-117 completion via PyPI Trusted Publishing](ADR-184-adr117-completion-pypi-trusted-publishing.md) (refs #785)
+- [ADR-264: Versioned wire protocol for RTL8720F CFR and Range-FFT reports](ADR-264-rtl8720f-radar-wire-protocol.md)
+- [ADR-263: Adopt RTL8720F 2.4 GHz FMCW radar as an optional RuView sensing platform](ADR-263-rtl8720f-2-4ghz-fmcw-radar-platform.md)
+
+This folder contains 210 Architecture Decision Records (ADRs) that document every significant technical choice in the RuView / WiFi-DensePose project. (The index tables below list a curated subset per domain; see the directory listing for the full set.)
 
 ## Why ADRs?
 
@@ -63,6 +72,8 @@ Statuses: **Proposed** (under discussion), **Accepted** (approved and/or impleme
 | [ADR-033](ADR-033-crv-signal-line-sensing-integration.md) | CRV Signal Line Sensing Integration | Proposed |
 | [ADR-037](ADR-037-multi-person-pose-detection.md) | Multi-Person Pose Detection from Single ESP32 | Proposed |
 | [ADR-042](ADR-042-coherent-human-channel-imaging.md) | Coherent Human Channel Imaging (beyond CSI) | Proposed |
+| [ADR-134](ADR-134-csi-to-cir-time-domain-multipath.md) | First-Class Channel Impulse Response (CIR) Support | Proposed |
+| [ADR-135](ADR-135-empty-room-baseline-calibration.md) | Empty-Room Baseline Calibration (per-subcarrier Welford statistics) | Proposed |
 
 ### Machine learning and training
 
@@ -77,6 +88,10 @@ Statuses: **Proposed** (under discussion), **Accepted** (approved and/or impleme
 | [ADR-023](ADR-023-trained-densepose-model-ruvector-pipeline.md) | Trained DensePose Model with RuVector Pipeline | Proposed |
 | [ADR-024](ADR-024-contrastive-csi-embedding-model.md) | Project AETHER: Contrastive CSI Embeddings | Required |
 | [ADR-027](ADR-027-cross-environment-domain-generalization.md) | Project MERIDIAN: Cross-Environment Generalization | Proposed |
+| [ADR-149](ADR-149-public-community-leaderboard-huggingface.md) | AetherArena: public spatial-intelligence benchmark on Hugging Face | Proposed |
+| [ADR-150](ADR-150-rf-foundation-encoder.md) | RF Foundation Encoder: pose-preserving, subject/room/device-invariant CSI embedding | Proposed |
+| [ADR-151](ADR-151-room-calibration-specialist-training.md) | Per-Room Calibration & Specialized Model Training (room-first → bank of small ruVector specialists) | Proposed |
+| [ADR-152](ADR-152-wifi-pose-sota-2026-intake.md) | WiFi-Pose SOTA 2026 Intake: geometry-conditioned calibration, external benchmarks, foundation-encoder recipe | Proposed |
 
 ### Platform and UI
 
@@ -91,6 +106,8 @@ Statuses: **Proposed** (under discussion), **Accepted** (approved and/or impleme
 | [ADR-036](ADR-036-rvf-training-pipeline-ui.md) | Training Pipeline UI Integration | Proposed |
 | [ADR-043](ADR-043-sensing-server-ui-api-completion.md) | Sensing Server UI API Completion (14 endpoints) | Accepted |
 | [ADR-115](ADR-115-home-assistant-integration.md) | Home Assistant integration via MQTT auto-discovery + Matter bridge (HA-DISCO + HA-FABRIC + HA-MIND) | Accepted (MQTT track) / Proposed (Matter SDK P8b) |
+| [ADR-169](ADR-169-adam-mode-light-theme.md) | adam-mode — light theme toggle for the three.js realtime demo | Proposed |
+| [ADR-170](ADR-170-yoga-mode-pose-system.md) | yoga-mode — yoga pose detection, classification, and scoring for the three.js realtime demo | Proposed |
 
 ### Architecture and infrastructure
 
@@ -112,6 +129,22 @@ Statuses: **Proposed** (under discussion), **Accepted** (approved and/or impleme
 | [ADR-097](ADR-097-adopt-rvcsi-as-ruview-csi-runtime.md) | Adopt rvCSI as RuView's primary CSI runtime (phased adoption) | Proposed |
 | [ADR-098](ADR-098-evaluate-midstream-fit.md) | Evaluate `ruvnet/midstream` for RuView's CSI / WebSocket / mesh pipeline | Rejected |
 | [ADR-099](ADR-099-midstream-introspection-tap.md) | Adopt midstream as RuView's real-time introspection + low-latency tap | Proposed |
+| [ADR-263](ADR-263-ruview-npm-harness-deep-review.md) | `@ruvnet/ruview` npm harness — deep review + optimization strategy | Proposed |
+| [ADR-264](ADR-264-rvagent-mcp-and-cli-npm-deep-review.md) | `@ruvnet/rvagent` MCP server + `@ruv/ruview-cli` — deep review + optimization strategy | Proposed |
+| [ADR-265](ADR-265-ruview-npm-distribution-strategy.md) | RuView npm distribution strategy — CI gate, provenance, version single-sourcing, namespace | Proposed |
+| [ADR-273](ADR-273-unified-rf-spatial-world-model.md) | Unified RF spatial world model — umbrella, anti-leakage protocol, acceptance gates | Accepted (P1 implemented) |
+| [ADR-274](ADR-274-universal-rf-encoder-adapter-registry.md) | Universal RF foundation encoder + hardware adapter registry | Accepted (P1 implemented) |
+| [ADR-275](ADR-275-rf-aware-gaussian-spatial-memory.md) | RF-aware Gaussian spatial memory | Accepted (P1 implemented) |
+| [ADR-276](ADR-276-physics-guided-synthetic-rf-worlds.md) | Physics-guided synthetic RF world generator | Accepted (P1 implemented) |
+| [ADR-277](ADR-277-edge-sensing-control-plane.md) | Edge sensing control plane (802.11bf / ETSI ISAC aligned) | Accepted (P1 implemented) |
+| [ADR-278](ADR-278-radar-inverse-rendering-research-program.md) | Radar inverse rendering + differentiable RF SLAM research program | Proposed |
+| [ADR-279](ADR-279-native-rf-frame-contract.md) | Native RF frame contract — `RfFrameV2` authoritative, canonical tensor derived | Accepted (implemented) |
+| [ADR-280](ADR-280-active-sensing-programmable-perception.md) | Active sensing & programmable perception control plane | Accepted (implemented) |
+| [ADR-281](ADR-281-ble-cs-delay-doppler-pose-factorization.md) | BLE Channel Sounding, delay-Doppler tensors, P3162 import, factorized pose | Accepted (implemented) |
+| [ADR-282](ADR-282-ruview-ecosystem-positioning.md) | Ecosystem positioning + mandatory L0–L5 evidence ladder | Accepted |
+| [ADR-287](ADR-287-coherent-wideband-rf-tomography-crate.md) | `wifi-densepose-sar` — coherent wideband RF tomography research crate | Accepted (implemented, published) |
+| [ADR-285](ADR-285-homecore-wasm-first-metaharness.md) | WASM-first Homecore developer metaharness via `npx homecore` | Accepted (implemented and validated) |
+| [ADR-286](ADR-286-wifi-densepose-sar-harness-via-metaharness.md) | `wifi-densepose-sar-harness` — MetaHarness with darwin/router/flywheel | Accepted (implemented, published) |
 
 ---
 
