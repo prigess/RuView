@@ -134,6 +134,10 @@ final class SensingViewModel: ObservableObject {
     @Published var adaptiveStatus: AdaptiveStatus?
     @Published var calibrationStatus: CalibrationStatus?
 
+    // Upstream sensing-trust + Pi-health surfaces (post-sync).
+    @Published var serverStatus: ServerStatus?
+    @Published var systemMetrics: SystemMetrics?
+
     @Published var nodesLoading: Bool = false
     @Published var zonesLoading: Bool = false
     @Published var nodesError: String?
@@ -233,6 +237,7 @@ final class SensingViewModel: ObservableObject {
     let zonesPollIntervalSeconds: TimeInterval = 2.0
     private var nodesPollTask: Task<Void, Never>?
     private var zonesPollTask: Task<Void, Never>?
+    private var systemPollTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Init
@@ -448,6 +453,8 @@ final class SensingViewModel: ObservableObject {
         isConnected = false
         connectionError = nil
         isSignalLost = false
+        serverStatus = nil
+        systemMetrics = nil
     }
 
     // MARK: - Polling
@@ -455,6 +462,7 @@ final class SensingViewModel: ObservableObject {
     private func startPolling() {
         startNodesPolling()
         startZonesPolling()
+        startSystemPolling()
     }
 
     private func stopPolling() {
@@ -462,6 +470,25 @@ final class SensingViewModel: ObservableObject {
         nodesPollTask = nil
         zonesPollTask?.cancel()
         zonesPollTask = nil
+        systemPollTask?.cancel()
+        systemPollTask = nil
+    }
+
+    // Sensing-trust + Pi-health poll (5s — these change slowly). Additive
+    // panels, so failures are swallowed quietly rather than surfaced as errors.
+    private func startSystemPolling() {
+        systemPollTask?.cancel()
+        systemPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.refreshSystem()
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+            }
+        }
+    }
+
+    func refreshSystem() async {
+        if let s = try? await client.fetchServerStatus() { serverStatus = s }
+        if let m = try? await client.fetchSystemMetrics() { systemMetrics = m.systemMetrics }
     }
 
     private func startNodesPolling() {

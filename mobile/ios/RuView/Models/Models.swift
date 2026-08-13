@@ -294,3 +294,74 @@ extension String {
         }
     }
 }
+
+// MARK: - Server status / trust engine — GET /api/v1/status
+// Upstream (post-sync) exposes the sensing trust engine: whether the server has
+// demoted its own outputs, suppressed raw values, hit engine errors, or wants a
+// recalibration. Surfaced in Node Health as a reliability indicator (all use cases).
+
+struct ServerStatus: Decodable {
+    let status: String
+    let trust: TrustState
+}
+
+struct TrustState: Decodable {
+    let demoted: Bool
+    let engineErrorCount: Int
+    let rawOutputsSuppressed: Bool
+    let recalibrationRecommended: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case demoted
+        case engineErrorCount = "engine_error_count"
+        case rawOutputsSuppressed = "raw_outputs_suppressed"
+        case recalibrationRecommended = "recalibration_recommended"
+    }
+
+    enum Level { case trusted, caution, degraded }
+
+    var level: Level {
+        if demoted || rawOutputsSuppressed { return .degraded }
+        if recalibrationRecommended || engineErrorCount > 0 { return .caution }
+        return .trusted
+    }
+
+    var summary: String {
+        switch level {
+        case .trusted:
+            return "Trusted"
+        case .caution:
+            return recalibrationRecommended
+                ? "Recalibration recommended"
+                : "\(engineErrorCount) engine warning\(engineErrorCount == 1 ? "" : "s")"
+        case .degraded:
+            return demoted ? "Sensing demoted" : "Raw outputs suppressed"
+        }
+    }
+}
+
+// MARK: - System metrics (Pi health) — GET /api/v1/metrics
+
+struct SystemMetricsResponse: Decodable {
+    let systemMetrics: SystemMetrics
+
+    enum CodingKeys: String, CodingKey {
+        case systemMetrics = "system_metrics"
+    }
+}
+
+struct SystemMetrics: Decodable {
+    let cpu: MetricPercent
+    let memory: MetricPercent
+    let disk: MetricPercent
+}
+
+struct MetricPercent: Decodable {
+    let percent: Double
+    let usedMb: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case percent
+        case usedMb = "used_mb"
+    }
+}

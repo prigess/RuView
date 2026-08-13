@@ -286,6 +286,15 @@ final class RuViewClient: ObservableObject {
         try await get("/api/v1/calibration/status", as: CalibrationStatus.self)
     }
 
+    // Upstream sensing-trust + system-health surfaces (post-sync).
+    func fetchServerStatus() async throws -> ServerStatus {
+        try await get("/api/v1/status", as: ServerStatus.self)
+    }
+
+    func fetchSystemMetrics() async throws -> SystemMetricsResponse {
+        try await get("/api/v1/metrics", as: SystemMetricsResponse.self)
+    }
+
     // MARK: - REST action functions
 
     func startCalibration() async throws -> Bool {

@@ -98,6 +98,9 @@ struct NodeHealthView: View {
                                   trailing: "\(unmappedNodes.count) extra")
                     unmappedGrid
                 }
+                SectionHeader(title: "System")
+                SystemTrustCard(status: viewModel.serverStatus)
+                PiHealthCard(metrics: viewModel.systemMetrics)
                 if let error = viewModel.nodesError {
                     errorBanner(message: error)
                 }
@@ -289,6 +292,107 @@ struct NodeHealthView: View {
         }
     }
     private func stopRefreshTimer() { refreshTimer?.invalidate(); refreshTimer = nil }
+}
+
+// MARK: - System cards (upstream sensing-trust + Pi health, post-sync)
+
+private struct SystemTrustCard: View {
+    let status: ServerStatus?
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: iconName)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundColor(tint)
+                .frame(width: 44, height: 44)
+                .background(tint.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Sensing Trust")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.primary)
+                Text(status?.trust.summary ?? "Awaiting server")
+                    .font(.footnote)
+                    .foregroundColor(.healthSub)
+            }
+            Spacer()
+            if let t = status?.trust, t.engineErrorCount > 0 {
+                Text("\(t.engineErrorCount)")
+                    .font(.headline.monospacedDigit())
+                    .foregroundColor(tint)
+            }
+        }
+        .padding(14)
+        .background(Color.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: Color.steel.opacity(0.10), radius: 8, x: 0, y: 3)
+    }
+
+    private var tint: Color {
+        switch status?.trust.level {
+        case .trusted:  return .green
+        case .caution:  return .orange
+        case .degraded: return .red
+        case nil:       return .steel
+        }
+    }
+    private var iconName: String {
+        switch status?.trust.level {
+        case .trusted:  return "checkmark.shield.fill"
+        case .caution:  return "exclamationmark.shield.fill"
+        case .degraded: return "xmark.shield.fill"
+        case nil:       return "shield"
+        }
+    }
+}
+
+private struct PiHealthCard: View {
+    let metrics: SystemMetrics?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "cpu").foregroundColor(.steel)
+                Text("Orange Pi Health")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.primary)
+                Spacer()
+                Text(metrics == nil ? "—" : "live")
+                    .font(.caption).foregroundColor(.healthSub)
+            }
+            HStack(spacing: 10) {
+                metric("CPU", metrics?.cpu.percent)
+                metric("Memory", metrics?.memory.percent)
+                metric("Disk", metrics?.disk.percent)
+            }
+        }
+        .padding(14)
+        .background(Color.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: Color.steel.opacity(0.10), radius: 8, x: 0, y: 3)
+    }
+
+    private func metric(_ label: String, _ percent: Double?) -> some View {
+        VStack(spacing: 4) {
+            Text(percent.map { String(format: "%.0f%%", $0) } ?? "—")
+                .font(.title3.weight(.bold).monospacedDigit())
+                .foregroundColor(color(for: percent))
+            Text(label)
+                .font(.caption2)
+                .foregroundColor(.healthSub)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(Color.steel.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func color(for percent: Double?) -> Color {
+        guard let p = percent else { return .steel }
+        if p >= 90 { return .red }
+        if p >= 70 { return .orange }
+        return .steel
+    }
 }
 
 // MARK: - NodeCard
