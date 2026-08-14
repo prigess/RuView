@@ -1,0 +1,10 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: RuView
+Upstream-Contact: https://github.com/ruvnet/RuView
+Source: https://github.com/ruvnet/RuView
+
+Files: *
+Copyright: 2025-2026 RuView contributors
+License: See repository LICENSE file
+ RuView source is dual-licensed under Apache-2.0 and MIT at the upstream
+ repository. This Debian package bundles upstream sources unmodified.

@@ -1,0 +1,174 @@
+# ESPHome configuration for the RuView "Node 2" — north position.
+#
+# Hardware:  Espressif ESP32-S3 (8 MB DevKitC) + Hi-Link LD2410 24 GHz radar.
+# Role:      Long-range presence + motion + multi-target detection. Replaces
+#            the custom RuView CSI firmware on this specific device because:
+#
+#   - The LD2410 isn't supported by the custom firmware's mmwave_sensor_init
+#     (which only knows MR60BHA2 protocol).
+#   - ESPHome ships a mature `ld2410` component with built-in support for
+#     presence (moving + still targets), distance, energy.
+#   - Same MQTT integration that already works for the C6/MR60BHA2 (Node 4),
+#     consumed by the Pi's radar bridge.
+#
+# The other two S3s (Nodes 1 and 3) continue to run the custom RuView CSI
+# firmware. We trade Node 2's CSI feed for radar-grade presence detection,
+# which is the right call for the elder-care entry/exit demo (LD2410's 8 m
+# range and wider field of view both beat the MR60's 3 m vital-signs cone).
+#
+# Wiring (LD2410 → ESP32-S3 DevKitC):
+#   VCC   → 5V       (USB-V / VIN — NOT 3.3V; LD2410 needs 5V)
+#   GND   → GND
+#   TX    → GPIO18   (S3 UART1 RX)
+#   RX    → GPIO17   (S3 UART1 TX)
+#   OUT   → (leave floating; the protocol gives us the same info)
+#
+# First-flash command (USB, the S3 is NOT yet running ESPHome):
+#   cd firmware/esphome
+#   esphome run ruview-s3-ld2410.yaml --device /dev/cu.wchusbserial5B7B0511421
+
+substitutions:
+  device_name: ruview-s3-ld2410-n2
+  device_friendly: "RuView Node 2 — LD2410 (North)"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${device_friendly}
+  on_boot:
+    priority: 600
+    then:
+      - logger.log: "RuView Node 2 (S3 + LD2410) booted"
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+    version: recommended
+  flash_size: 8MB
+
+# ── WiFi (portable: phone hotspot primary, home WiFi fallback) ─────────────
+# Matches the C6's portable WiFi strategy (see ruview-c6-radar.yaml). The
+# device joins whichever known SSID is broadcasting at the moment, so it
+# works at home AND at the workplace with no re-flash.
+wifi:
+  power_save_mode: NONE
+  fast_connect: false
+  reboot_timeout: 0s
+  networks:
+    # Phone hotspot — primary when broadcasting (portable demos).
+    - ssid: !secret wifi_ssid_hotspot
+      password: !secret wifi_password_hotspot
+      priority: 10
+    # Home mesh — fallback (auto-wins when JoelAndroid isn't around).
+    - ssid: !secret wifi_ssid_home
+      password: !secret wifi_password_home
+      priority: 5
+
+# ── Native API (for ESPHome's `logs` and OTA tooling) ──────────────────────
+api:
+  encryption:
+    key: !secret api_encryption_key
+  reboot_timeout: 0s
+
+# ── OTA — once flashed via USB once, future updates go over WiFi ───────────
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+# ── MQTT — same broker and topic_prefix pattern as the C6 radar ────────────
+mqtt:
+  broker: !secret mqtt_broker_host
+  port: 1883
+  topic_prefix: ruview-s3-ld2410-n2
+  discovery: false
+
+# ── Web UI for direct inspection (curl http://<ip>/sensor/...) ─────────────
+web_server:
+  port: 80
+  version: 3
+  include_internal: false
+
+logger:
+  level: INFO
+  baud_rate: 115200   # re-enabled — LD2410 moved to UART1 (GPIO17/18), so UART0 is free for USB serial logs
+
+# ── UART to LD2410 (GPIO17/18, 256000 8N1) ─────────────────────────────────
+# 2026-06-11: user's physical wiring has LD2410's TX going to S3 GPIO17 and
+# LD2410's RX coming from S3 GPIO18 — the OPPOSITE of the convention I
+# initially documented. That's a perfectly valid choice as long as the YAML
+# matches: ESP32 transmits FROM tx_pin → LD2410 RX, receives ON rx_pin ←
+# LD2410 TX. Pins swapped accordingly.
+uart:
+  id: ld2410_uart
+  tx_pin: GPIO17    # ESP TX → LD2410 RX (red wire)
+  rx_pin: GPIO18    # ESP RX ← LD2410 TX (purple wire)
+  baud_rate: 115200  # try alternate — some LD2410C batches ship at 115200, not 256000
+  parity: NONE
+  stop_bits: 1
+
+# ── LD2410 component ───────────────────────────────────────────────────────
+ld2410:
+  uart_id: ld2410_uart
+  id: ld2410_radar
+
+# ── Sensors ─────────────────────────────────────────────────────────────────
+sensor:
+  - platform: ld2410
+    moving_distance:
+      name: "Moving Target Distance"
+      id: moving_distance
+    still_distance:
+      name: "Still Target Distance"
+      id: still_distance
+    moving_energy:
+      name: "Moving Target Energy"
+      id: moving_energy
+    still_energy:
+      name: "Still Target Energy"
+      id: still_energy
+    detection_distance:
+      name: "Detection Distance"
+      id: detection_distance
+
+  - platform: wifi_signal
+    name: "WiFi RSSI"
+    id: wifi_rssi
+    update_interval: 10s
+
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+
+# ── Binary sensors ──────────────────────────────────────────────────────────
+binary_sensor:
+  - platform: ld2410
+    has_target:
+      name: "Person Present"
+      id: person_present
+      filters:
+        - delayed_off: 3s   # extra hysteresis beyond the bridge's own stickiness
+    has_moving_target:
+      name: "Moving Target Present"
+      id: moving_target_present
+    has_still_target:
+      name: "Still Target Present"
+      id: still_target_present
+
+  - platform: status
+    name: "Status"
+
+# ── Text sensors (network diagnostics) ──────────────────────────────────────
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+    ssid:
+      name: "Connected SSID"
+    bssid:
+      name: "Connected BSSID"
+    mac_address:
+      name: "MAC Address"
+
+button:
+  - platform: restart
+    name: "Restart"

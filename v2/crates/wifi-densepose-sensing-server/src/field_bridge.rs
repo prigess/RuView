@@ -27,9 +27,11 @@ static CALIB_NORMALIZER: LazyLock<HardwareNormalizer> = LazyLock::new(HardwareNo
 const OCCUPANCY_WINDOW: usize = 50;
 
 /// Perturbation energy threshold for detecting a second person.
-const ENERGY_THRESH_2: f64 = 12.0;
+/// Lowered for more sensitive detection (was 12.0)
+const ENERGY_THRESH_2: f64 = 8.0;
 /// Perturbation energy threshold for detecting a third person.
-const ENERGY_THRESH_3: f64 = 25.0;
+/// Lowered for more sensitive detection (was 25.0)
+const ENERGY_THRESH_3: f64 = 18.0;
 
 /// Maximum occupancy a single ESP32 link can plausibly resolve (#894).
 /// The score heuristic (`score_to_person_count`) and the perturbation-energy

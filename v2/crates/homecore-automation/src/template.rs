@@ -191,7 +191,9 @@ mod tests {
         let sm = sm_with("switch.fan", "on", serde_json::json!({}));
         let env = TemplateEnvironment::new(sm);
         let out = env.render("{{ is_state('switch.fan', 'on') }}").unwrap();
-        assert_eq!(out.trim(), "true");
+        // HA/Jinja2 render booleans Python-style ("True"/"False"); render_bool()
+        // lowercases before interpreting, so this is the correct rendered form.
+        assert_eq!(out.trim(), "True");
     }
 
     #[test]
@@ -199,7 +201,7 @@ mod tests {
         let sm = sm_with("switch.fan", "off", serde_json::json!({}));
         let env = TemplateEnvironment::new(sm);
         let out = env.render("{{ is_state('switch.fan', 'on') }}").unwrap();
-        assert_eq!(out.trim(), "false");
+        assert_eq!(out.trim(), "False");
     }
 
     #[test]

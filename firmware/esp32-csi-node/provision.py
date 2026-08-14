@@ -440,7 +440,7 @@ def main():
         except ValueError:
             parser.error(f"--filter-mac contains invalid hex bytes: '{args.filter_mac}'")
 
-    print("Building NVS configuration:")
+    print(f"Building NVS configuration for {args.chip}:")
     if args.ssid:
         print(f"  WiFi SSID:     {args.ssid}")
     if args.password is not None:

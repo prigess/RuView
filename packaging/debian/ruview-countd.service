@@ -1,0 +1,18 @@
+[Unit]
+Description=RuView CSI person-count bridge — supervises cog-person-count, serves :3028
+Documentation=https://github.com/ruvnet/RuView
+After=network-online.target ruview-sensing.service
+Wants=ruview-sensing.service
+
+[Service]
+Type=simple
+# Spawns the cog-person-count Candle CNN (reads /sensing/latest, slides a
+# 56x20 CSI window, runs the count head), parses its person.count events, and
+# serves the freshest count at GET :3028/api/v1/count. Idle until CSI flows.
+WorkingDirectory=/root/RuView/v2
+ExecStart=/usr/local/bin/ruview-countd
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

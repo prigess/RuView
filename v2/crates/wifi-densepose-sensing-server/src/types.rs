@@ -56,10 +56,13 @@ pub const MAX_BONE_CHANGE_RATIO: f64 = 0.20;
 /// Number of motion_energy frames to track for coherence scoring.
 pub const COHERENCE_WINDOW: usize = 20;
 
-/// Debounce frames required before state transition (at ~10 FPS = ~0.4s).
-pub const DEBOUNCE_FRAMES: u32 = 4;
-/// EMA alpha for motion smoothing (~1s time constant at 10 FPS).
-pub const MOTION_EMA_ALPHA: f64 = 0.15;
+/// Debounce frames required before state transition.
+/// 2026-06-17: raised 4 → 10 to suppress noise-driven absent↔active flips
+/// observed in bench-cluster CSI (smoothed_motion oscillates around thresholds).
+pub const DEBOUNCE_FRAMES: u32 = 10;
+/// EMA alpha for motion smoothing (lower = more aggressive smoothing).
+/// 2026-06-17: lowered 0.15 → 0.06 — longer time constant smooths bench RF jitter.
+pub const MOTION_EMA_ALPHA: f64 = 0.06;
 /// EMA alpha for slow-adapting baseline (~30s time constant at 10 FPS).
 pub const BASELINE_EMA_ALPHA: f64 = 0.003;
 /// Number of warm-up frames before baseline subtraction kicks in.

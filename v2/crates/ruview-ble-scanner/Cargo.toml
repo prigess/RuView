@@ -1,0 +1,38 @@
+[package]
+name = "ruview-ble-scanner"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Passive BLE-advertisement scanner that republishes observed devices as MQTT into the RuView sensing pipeline."
+
+[lib]
+name = "ruview_ble_scanner"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ruview-ble-scanner"
+path = "src/main.rs"
+
+# Cross-platform deps for the pure modules in lib.rs (hr_decoder, etc).
+[dependencies]
+serde       = { workspace = true, features = ["derive"] }
+
+# bluer is BlueZ-specific; the BLE binaries are gated on Linux.
+[target.'cfg(target_os = "linux")'.dependencies]
+bluer = { version = "0.17", features = ["bluetoothd"] }
+tokio       = { workspace = true, features = ["full"] }
+serde_json  = { workspace = true }
+tracing     = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap        = { workspace = true }
+anyhow      = "1"
+rumqttc     = { version = "0.24", default-features = false, features = ["use-rustls"] }
+futures     = "0.3"
+uuid        = { version = "1", features = ["macro-diagnostics"] }
+
+# Non-Linux: only enough deps to compile a stub main that prints and exits.
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+tokio       = { workspace = true, features = ["full"] }
+anyhow      = "1"
+tracing     = { workspace = true }
+tracing-subscriber = { workspace = true }

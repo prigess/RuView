@@ -151,23 +151,54 @@ pub fn tracker_to_person_detections(tracker: &PoseTracker) -> Vec<PersonDetectio
                 }
             }
 
-            let bbox = if observed > 0 {
-                BoundingBox {
-                    x: min_x,
-                    y: min_y,
-                    width: (max_x - min_x).max(0.01),
-                    height: (max_y - min_y).max(0.01),
-                }
+            let (bbox, bbox_is_observed) = if observed > 0 {
+                (
+                    BoundingBox {
+                        x: min_x,
+                        y: min_y,
+                        width: (max_x - min_x).max(0.01),
+                        height: (max_y - min_y).max(0.01),
+                    },
+                    true,
+                )
             } else {
-                // No observed keypoints — use a default bbox at centroid
+                // No observed keypoints — use a default bbox at centroid.
+                // This is typical for WiFi-CSI inputs where the radio gives
+                // motion + presence but per-joint positions are uninformed.
                 let cx = keypoints.iter().map(|k| k.x).sum::<f64>() / keypoints.len() as f64;
                 let cy = keypoints.iter().map(|k| k.y).sum::<f64>() / keypoints.len() as f64;
-                BoundingBox {
-                    x: cx - 0.3,
-                    y: cy - 0.5,
-                    width: 0.6,
-                    height: 1.0,
+                (
+                    BoundingBox {
+                        x: cx - 0.3,
+                        y: cy - 0.5,
+                        width: 0.6,
+                        height: 1.0,
+                    },
+                    false,
+                )
+            };
+
+            // Pose inference (best-effort, see ADR pending).
+            //
+            // When we have OBSERVED keypoints we can infer pose from the bbox
+            // aspect ratio: standing humans are clearly taller than wide,
+            // lying humans are clearly wider than tall, sitting is in between.
+            //
+            // When ALL keypoints are placeholder (the common WiFi-CSI case —
+            // every confidence == 0), the bbox aspect ratio carries no real
+            // body-shape information, so we honestly report "unknown" rather
+            // than the previous hardcoded "standing".
+            let pose = if bbox_is_observed {
+                let aspect = bbox.height / bbox.width.max(0.01);
+                if aspect >= 1.4 {
+                    "standing"
+                } else if aspect <= 0.6 {
+                    "lying"
+                } else {
+                    "sitting"
                 }
+            } else {
+                "unknown"
             };
 
             PersonDetection {

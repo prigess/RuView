@@ -1,0 +1,61 @@
+{
+  "_comment": "Hardware inventory of RuView sensing nodes. Source of truth for node_id ↔ MAC ↔ position. IPs may change with DHCP; that is intentional — node_id (provisioned into NVS for the S3s, set via systemd env for the C6) is the canonical identity used by the sensing-server.",
+  "_updated": "2026-06-11",
+  "network": {
+    "ssid": "Firefly",
+    "target_server": "192.168.7.205",
+    "target_port": 5005
+  },
+  "nodes": {
+    "1": {
+      "chip": "esp32s3",
+      "mac": "e0:72:a1:d5:1d:4c",
+      "position": "west",
+      "last_seen_ip": "192.168.7.152",
+      "wifi_bssid": "14:22:db:bc:54:a6",
+      "provisioned": "2026-06-07",
+      "notes": "Re-provisioned 2026-06-07 from USB Port A (5B7A0773891)."
+    },
+    "2": {
+      "chip": "esp32s3",
+      "mac": "e0:72:a1:db:59:34",
+      "position": "north",
+      "last_seen_ip": "192.168.7.189",
+      "wifi_bssid": "14:22:db:bc:7b:e6",
+      "provisioned": "2026-06-07",
+      "firmware": "ESPHome 2026.5.3 (ruview-s3-ld2410.yaml) — RuView CSI replaced 2026-06-11",
+      "ld2410_status": "unit declared bad 2026-06-11 after exhaustive TX/RX x baud testing; new LD2410s arriving 2026-06-12",
+      "role_pending": "long-range presence + range via LD2410 once a working unit is wired",
+      "notes": "Re-flashed 2026-06-11 to ESPHome to host an LD2410. The original LD2410 wiring incident damaged the radar (not the S3 — the S3 boots and runs ESPHome cleanly). Pi systemd drop-in keeps RUVIEW_LD2410_* env vars commented out until a working LD2410 is attached, at which point the bridge picks it up via MQTT with zero further config."
+    },
+    "3": {
+      "chip": "esp32s3",
+      "mac": "44:1b:f6:84:20:74",
+      "position": "east",
+      "last_seen_ip": "192.168.7.150",
+      "wifi_bssid": "14:22:db:bc:54:a6",
+      "provisioned": "2026-06-07",
+      "notes": "Provisioned 2026-06-07 from USB Port C (5B7B0519241)."
+    },
+    "4": {
+      "chip": "esp32c6",
+      "mac": "58:e6:c5:19:a4:40",
+      "position": "south",
+      "last_seen_ip": "192.168.7.223",
+      "wifi_bssid": "14:22:db:bc:7b:e6",
+      "provisioned": "2026-06-08",
+      "active": true,
+      "restored_at": "2026-06-11",
+      "firmware": "ESPHome 2026.5.3 + Seeed MR60BHA2 60 GHz radar",
+      "transport": "MQTT to mosquitto on Pi (127.0.0.1:1883), topic prefix ruview-c6-radar",
+      "role": "authoritative source for presence, range, HR, BR (radar-grade, not heuristic)",
+      "notes": "Restored 2026-06-11. The Pi-side c6_radar_bridge subscribes to MQTT and synthesises ADR-039 vitals packets stamped with node_id=4, set via systemd drop-in /etc/systemd/system/ruview-sensing.service.d/c6-radar.conf env RUVIEW_C6_NODE_ID=4. Earlier collision with node 1 (when the env was =1) clobbered the west S3's CSI slot half the time."
+    }
+  },
+  "spare": {
+    "_comment": "USB-to-serial chip IDs of the three currently-tethered nodes — for re-locating them physically.",
+    "5B7A0773891": "Node 1 (e0:72:a1:d5:1d:4c)",
+    "5B7B0511421": "Node 2 (e0:72:a1:db:59:34)",
+    "5B7B0519241": "Node 3 (44:1b:f6:84:20:74)"
+  }
+}

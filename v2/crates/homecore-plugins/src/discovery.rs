@@ -200,13 +200,21 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn root() -> PathBuf {
+        // A per-call atomic counter guarantees a unique dir even when two
+        // parallel tests observe the same nanosecond timestamp (process::id()
+        // is constant within the test binary and some platforms have coarse
+        // clock resolution) — otherwise they race on a shared temp dir and one
+        // test's remove_dir_all clobbers another's, causing an intermittent
+        // failure under `--no-fail-fast`.
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let path = std::env::temp_dir().join(format!(
-            "homecore-plugin-discovery-{}-{}",
+            "homecore-plugin-discovery-{}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         fs::create_dir(&path).unwrap();
         path

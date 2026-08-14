@@ -1,0 +1,14 @@
+#!/bin/sh
+# ruview-sensing prerm — stop the service before files are removed.
+set -e
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        if [ -d /run/systemd/system ]; then
+            systemctl stop ruview-sensing.service >/dev/null 2>&1 || true
+        fi
+        ;;
+    failed-upgrade) ;;
+    *) echo "prerm called with unknown argument: $1" >&2 ; exit 1 ;;
+esac
+exit 0

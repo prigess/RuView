@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RuView — Portable Demo Runbook</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  :root {
+    --steel:       #4682B4;
+    --steel-dark:  #2C5282;
+    --steel-light: #BDD5EA;
+    --steel-pale:  #EFF4FA;
+    --text:        #1A2E4A;
+    --sub:         #6B7FA3;
+    --ok:          #2BA66A;
+    --warn:        #E08A2A;
+    --alert:       #C04848;
+    --bg:          #F7F9FC;
+    --card:        #FFFFFF;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 32px 24px 64px;
+  }
+  h1 {
+    font-size: 28px;
+    margin: 0 0 4px;
+    letter-spacing: -0.5px;
+  }
+  .subtitle { color: var(--sub); margin: 0 0 28px; font-size: 14px; }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--steel-light);
+    border-radius: 12px;
+    padding: 16px 20px;
+    box-shadow: 0 1px 3px rgba(70, 130, 180, 0.06);
+  }
+  .card h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--steel-dark);
+    margin: 0 0 12px;
+    font-weight: 600;
+  }
+  .kv {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 4px 12px;
+    font-size: 14px;
+  }
+  .kv dt { color: var(--sub); }
+  .kv dd { margin: 0; font-family: "SF Mono", "Menlo", monospace; }
+  .topology {
+    background: var(--card);
+    border: 1px solid var(--steel-light);
+    border-radius: 12px;
+    margin-bottom: 24px;
+    overflow: hidden;
+  }
+  .topology h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--steel-dark);
+    padding: 16px 20px 0;
+    margin: 0;
+    font-weight: 600;
+  }
+  .topology .legend {
+    padding: 0 20px 16px;
+    color: var(--sub);
+    font-size: 13px;
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+  .legend-swatch {
+    width: 12px; height: 12px; border-radius: 3px;
+  }
+  svg .node-bg {
+    fill: var(--card);
+    stroke: var(--steel);
+    stroke-width: 2;
+  }
+  svg .node-bg.primary { stroke: var(--steel-dark); fill: var(--steel-pale); }
+  svg .node-bg.radar   { stroke: var(--ok); }
+  svg .node-bg.dormant { stroke: var(--steel-light); stroke-dasharray: 4 4; fill: #FAFBFD; }
+  svg .node-title { font: 600 13px sans-serif; fill: var(--text); }
+  svg .node-sub   { font: 11px "SF Mono", monospace; fill: var(--sub); }
+  svg .edge {
+    stroke: var(--steel);
+    stroke-width: 1.5;
+    fill: none;
+    marker-end: url(#arrow);
+  }
+  svg .edge.dashed { stroke-dasharray: 5 3; opacity: 0.6; }
+  svg .edge.dormant { stroke: var(--steel-light); stroke-dasharray: 2 4; }
+  svg .edge-label {
+    font: 11px "SF Mono", monospace;
+    fill: var(--steel-dark);
+    text-anchor: middle;
+  }
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .step {
+    background: var(--card);
+    border: 1px solid var(--steel-light);
+    border-radius: 12px;
+    padding: 18px 20px;
+    position: relative;
+  }
+  .step-num {
+    position: absolute;
+    top: 14px; right: 18px;
+    font: 700 22px sans-serif;
+    color: var(--steel-light);
+    line-height: 1;
+  }
+  .step h3 {
+    font-size: 15px;
+    margin: 0 0 10px;
+    color: var(--steel-dark);
+  }
+  .step p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--sub);
+    line-height: 1.55;
+  }
+  .step .pin {
+    display: inline-block;
+    background: var(--steel-pale);
+    color: var(--steel-dark);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font: 600 11px "SF Mono", monospace;
+    margin-top: 8px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--steel-light);
+  }
+  th {
+    font-weight: 600;
+    color: var(--steel-dark);
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+  }
+  td code {
+    font: 12px "SF Mono", monospace;
+    background: var(--steel-pale);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--steel-dark);
+  }
+  pre.cmd {
+    background: #1B2336;
+    color: #EAEFF7;
+    padding: 14px 18px;
+    border-radius: 8px;
+    font: 12.5px "SF Mono", monospace;
+    overflow-x: auto;
+    margin: 0;
+    line-height: 1.65;
+  }
+  pre.cmd .comment { color: #6B7FA3; }
+  .warn {
+    background: #FFF8E6;
+    border-left: 4px solid var(--warn);
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-top: 16px;
+    font-size: 13.5px;
+  }
+  .warn strong { color: var(--warn); }
+  details {
+    background: var(--card);
+    border: 1px solid var(--steel-light);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+  }
+  details summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--steel-dark);
+    font-size: 14px;
+  }
+  details p, details pre { margin-top: 10px; font-size: 13px; }
+  @media (max-width: 720px) {
+    .grid, .steps { grid-template-columns: 1fr; }
+  }
+  @media print {
+    body { background: white; }
+    .card, .step, .topology, pre.cmd, details { box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <h1>RuView — Portable Demo Runbook</h1>
+  <p class="subtitle">Single-file reference for the laptop-driven workplace demo. Generated 2026-06-11. Branch: <code>ruview_mobile_app</code> @ <code>a612550f</code>.</p>
+
+  <!-- Key info -->
+  <div class="grid">
+    <div class="card">
+      <h2>Network</h2>
+      <dl class="kv">
+        <dt>Hotspot SSID</dt>     <dd>JoelAndroid</dd>
+        <dt>Hotspot password</dt> <dd>Scooter!</dd>
+        <dt>Pi hostname</dt>      <dd>simha.local</dd>
+        <dt>C6 hostname</dt>      <dd>ruview-c6-radar.local</dd>
+        <dt>MQTT broker</dt>      <dd>simha.local:1883</dd>
+      </dl>
+    </div>
+    <div class="card">
+      <h2>App endpoints (on the Pi)</h2>
+      <dl class="kv">
+        <dt>iOS WebSocket</dt> <dd>ws://simha.local:3023/ws/sensing</dd>
+        <dt>HTTP / REST</dt>   <dd>http://simha.local:3022</dd>
+        <dt>Node table</dt>    <dd>/api/v1/nodes</dd>
+        <dt>Edge vitals</dt>   <dd>/api/v1/edge-vitals</dd>
+        <dt>SSH</dt>           <dd>ssh root@simha.local</dd>
+      </dl>
+    </div>
+  </div>
+
+  <!-- Topology diagram -->
+  <div class="topology">
+    <h2>Topology</h2>
+    <div class="legend">
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--steel-pale);border:2px solid var(--steel-dark)"></span> active server</span>
+      <span class="legend-item"><span class="legend-swatch" style="background:#fff;border:2px solid var(--ok)"></span> radar source</span>
+      <span class="legend-item"><span class="legend-swatch" style="background:#fff;border:2px solid var(--steel)"></span> client</span>
+      <span class="legend-item"><span class="legend-swatch" style="background:#fff;border:2px dashed var(--steel-light)"></span> dormant (tomorrow's LD2410)</span>
+    </div>
+    <svg id="topo" viewBox="0 0 1000 460" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block"></svg>
+  </div>
+
+  <!-- 3-step setup -->
+  <h2 style="font-size:14px;text-transform:uppercase;letter-spacing:1px;color:var(--steel-dark);margin:0 0 12px;">Three things to do at the workplace</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <h3>Phone</h3>
+      <p>Turn on Personal Hotspot. Plug phone into a charger so it doesn't sleep. Toggle "Maximize Compatibility" ON (forces 2.4 GHz — required for the ESP32).</p>
+      <span class="pin">Settings → Personal Hotspot</span>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <h3>Hardware</h3>
+      <p>Plug Pi power in. Plug C6 USB power in. Wait ~30 seconds for both to auto-join JoelAndroid. (Do NOT plug Pi into ethernet — that would override WiFi.)</p>
+      <span class="pin">~30 s boot time</span>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <h3>Mac</h3>
+      <p>Mac joins JoelAndroid automatically (it's in your preferred-networks list). Open <code>RuView.xcodeproj</code>, hit ⌘R. In RuView's Device Setup screen, type <code>simha.local</code>.</p>
+      <span class="pin">⌘R in Xcode</span>
+    </div>
+  </div>
+
+  <!-- Auto behavior table -->
+  <div class="card" style="padding:0;margin-bottom:24px;">
+    <h2 style="padding:16px 20px 0;">What happens automatically</h2>
+    <table>
+      <tr><th>Layer</th><th>Auto-behavior</th></tr>
+      <tr><td>Pi WiFi</td><td>NetworkManager profile <code>joel-hotspot</code> priority 10 auto-joins</td></tr>
+      <tr><td>C6 WiFi</td><td>ESPHome multi-network priority 10 auto-joins JoelAndroid</td></tr>
+      <tr><td>Mac WiFi</td><td>JoelAndroid is in known networks → auto-joins when in range</td></tr>
+      <tr><td>Pi services</td><td><code>mosquitto</code>, <code>avahi-daemon</code>, <code>ruview-sensing</code> autostart on boot</td></tr>
+      <tr><td>mDNS</td><td>Pi advertises <code>simha.local</code>, C6 advertises <code>ruview-c6-radar.local</code></td></tr>
+      <tr><td>C6 → Pi</td><td>Publishes radar data to <code>simha.local:1883</code> via MQTT</td></tr>
+      <tr><td>Pi internal</td><td>Bridge subscribes to MQTT, synthesises ADR-039 vitals packets, feeds sensing-server</td></tr>
+      <tr><td>iOS app</td><td>Connects WebSocket to <code>simha.local:3023</code>; person count comes from C6 radar (authoritative)</td></tr>
+    </table>
+  </div>
+
+  <!-- Smoke test -->
+  <div class="card" style="margin-bottom:24px;">
+    <h2>30-second smoke test (run on Mac before demoing)</h2>
+<pre class="cmd"><span class="comment"># 1. Pi reachable via mDNS</span>
+ping -c 2 simha.local
+
+<span class="comment"># 2. SSH still works on the new network</span>
+ssh root@simha.local "systemctl is-active ruview-sensing mosquitto"
+
+<span class="comment"># 3. C6 radar is publishing and the Pi sees it</span>
+curl -s http://simha.local:3022/api/v1/nodes | python3 -m json.tool</pre>
+    <p style="color:var(--sub);font-size:13px;margin-top:10px;">
+      Pass criteria: ping succeeds, both services <code>active</code>, Node 4 shows
+      <code>"radar_type": "MR60BHA2"</code> and <code>"status": "active"</code>.
+    </p>
+  </div>
+
+  <!-- Troubleshooting -->
+  <h2 style="font-size:14px;text-transform:uppercase;letter-spacing:1px;color:var(--steel-dark);margin:0 0 12px;">If something is wrong</h2>
+
+  <details>
+    <summary>Mac can't ping simha.local</summary>
+    <p>iPhone Personal Hotspot may be isolating clients. Two fallbacks:</p>
+    <ol>
+      <li><strong>Mac Internet Sharing</strong>: tether iPhone to Mac over USB-C, then System Settings → General → Sharing → Internet Sharing → share to WiFi. Mac becomes the AP.</li>
+      <li><strong>Travel router</strong> (GL.iNet "Mango", ~$30) — bring this next time. iPhone tethers to router; everything else joins router's WiFi.</li>
+    </ol>
+  </details>
+
+  <details>
+    <summary>Pi joins JoelAndroid but C6 doesn't (or vice versa)</summary>
+    <p>Verify on the Pi:</p>
+<pre class="cmd">nmcli connection show --active
+nmcli -t -f NAME,AUTOCONNECT,AUTOCONNECT-PRIORITY connection show | head</pre>
+    <p>For the C6, check from a browser at <code>http://ruview-c6-radar.local/</code> — ESPHome web UI shows current SSID + RSSI. If it's not connecting, the C6 may need a USB re-flash with the YAML at <code>firmware/esphome/ruview-c6-radar.yaml</code>.</p>
+  </details>
+
+  <details>
+    <summary>iOS app says "Cannot reach server"</summary>
+    <p>Make sure Simulator is on the same WiFi as the Pi. iOS Simulator inherits the Mac's network stack, so if the Mac can ping the Pi, the Simulator can too. Try typing the literal IP instead of <code>simha.local</code>:</p>
+<pre class="cmd"><span class="comment"># find Pi's hotspot IP from Mac</span>
+ping -c 1 simha.local | head -1
+<span class="comment"># 172.20.10.X is iPhone's usual subnet</span></pre>
+  </details>
+
+  <details>
+    <summary>Person count flickers or shows 0 when someone is there</summary>
+    <p>MR60BHA2 needs a clear line-of-sight to the chest, range 0.5–3 m. The radar's cone is forward-facing (~120° × 3 m). Person must stand in front, not behind or to the side. Once stable, the bridge holds presence for 4 s through brief lock-loss (already configured).</p>
+  </details>
+
+  <details>
+    <summary>I need a fallback if the demo really breaks</summary>
+    <p>Plug ethernet back into the Pi at home, SSH in, re-test on home WiFi: <code>ping simha.local && curl http://simha.local:3022/api/v1/nodes</code>. If that works at home, the issue is workplace-specific (AP isolation, firewall). Reset by toggling hotspot off/on; or pull out the travel router.</p>
+  </details>
+
+  <!-- Important warning -->
+  <div class="warn">
+    <strong>Tomorrow's parts:</strong> Two new LD2410 radar modules arrive. Node 2 (S3 at <code>192.168.7.189</code>) already runs ESPHome with the LD2410 YAML preloaded. Wire a working LD2410 into Node 2 (LD2410 TX → GPIO17, RX → GPIO18, VCC → 5V, GND → GND), re-enable the <code>RUVIEW_LD2410_*</code> env vars in <code>/etc/systemd/system/ruview-sensing.service.d/c6-radar.conf</code>, restart <code>ruview-sensing</code>, and Node 2 appears in <code>/api/v1/nodes</code> with <code>radar_type: LD2410</code>.
+  </div>
+
+</div>
+
+<script>
+// ── D3 topology diagram ──────────────────────────────────────────────────
+const svg = d3.select("#topo");
+
+// Arrow marker
+svg.append("defs").append("marker")
+  .attr("id", "arrow").attr("viewBox", "0 -5 10 10")
+  .attr("refX", 8).attr("refY", 0).attr("markerWidth", 6).attr("markerHeight", 6)
+  .attr("orient", "auto")
+  .append("path").attr("d", "M0,-5L10,0L0,5").attr("fill", "var(--steel)");
+
+const nodes = [
+  { id: "phone",  x: 500, y: 40,  title: "iPhone hotspot",        sub: "SSID: JoelAndroid",          type: "primary" },
+  { id: "mac",    x: 120, y: 220, title: "MacBook",               sub: "Xcode + iOS Simulator",       type: "client" },
+  { id: "pi",     x: 500, y: 220, title: "Orange Pi",             sub: "simha.local — server",        type: "primary" },
+  { id: "c6",     x: 870, y: 220, title: "ESP32-C6 (Node 4)",     sub: "MR60BHA2 60 GHz radar",       type: "radar" },
+  { id: "n2",     x: 870, y: 380, title: "ESP32-S3 (Node 2)",     sub: "LD2410 — waiting for tomorrow", type: "dormant" },
+  { id: "n1",     x: 120, y: 380, title: "S3 Nodes 1, 3",         sub: "Not needed for C6+Pi demo",   type: "dormant" },
+];
+
+const edges = [
+  { source: "phone",  target: "mac",   label: "WiFi",       kind: "solid" },
+  { source: "phone",  target: "pi",    label: "WiFi",       kind: "solid" },
+  { source: "phone",  target: "c6",    label: "WiFi",       kind: "solid" },
+  { source: "c6",     target: "pi",    label: "MQTT (radar)", kind: "dashed", curve: -40 },
+  { source: "mac",    target: "pi",    label: "WS + REST",    kind: "dashed", curve: 40 },
+  { source: "n2",     target: "pi",    label: "MQTT (TBD)",   kind: "dormant" },
+];
+
+const nodeMap = Object.fromEntries(nodes.map(n => [n.id, n]));
+
+// Edges (drawn first so nodes overlay them)
+const edgeLayer = svg.append("g");
+edges.forEach(e => {
+  const s = nodeMap[e.source], t = nodeMap[e.target];
+  const mx = (s.x + t.x) / 2 + (e.curve || 0);
+  const my = (s.y + t.y) / 2;
+  const cls = "edge" + (e.kind === "dashed" ? " dashed" : e.kind === "dormant" ? " dormant" : "");
+  edgeLayer.append("path")
+    .attr("class", cls)
+    .attr("d", `M${s.x},${s.y} Q${mx},${my} ${t.x},${t.y}`);
+  edgeLayer.append("text")
+    .attr("class", "edge-label")
+    .attr("x", mx).attr("y", my - 8)
+    .text(e.label);
+});
+
+// Nodes
+const node = svg.append("g").selectAll("g.node")
+  .data(nodes).enter().append("g")
+  .attr("class", "node")
+  .attr("transform", d => `translate(${d.x},${d.y})`);
+
+node.append("rect")
+  .attr("class", d => "node-bg " + d.type)
+  .attr("x", -110).attr("y", -32)
+  .attr("width", 220).attr("height", 64)
+  .attr("rx", 10);
+
+node.append("text")
+  .attr("class", "node-title")
+  .attr("text-anchor", "middle")
+  .attr("y", -6)
+  .text(d => d.title);
+
+node.append("text")
+  .attr("class", "node-sub")
+  .attr("text-anchor", "middle")
+  .attr("y", 14)
+  .text(d => d.sub);
+</script>
+</body>
+</html>

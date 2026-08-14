@@ -1,0 +1,342 @@
+<title>RuView Sensor Wiring — ESP32-S3 Standard Build</title>
+<style>
+  :root{
+    --primary:#4682B4; --primary-light:#5F9EA0; --primary-dark:#2F4F6F;
+    --secondary:#87CEEB; --success:#3CB371; --warning:#DAA520; --danger:#CD5C5C;
+    --dark:#1C2833; --dark-mid:#2C3E50; --light:#ECF0F1; --text-secondary:#B0C4DE;
+    --panel:rgba(27,38,59,.9); --panel-2:rgba(0,0,0,.24); --hair:rgba(135,206,235,.18);
+    --w-5v:#CD5C5C; --w-3v:#E0A458; --w-gnd:#8895a3; --w-tx:#66CDAA; --w-rx:#5F9EA0;
+    --w-clk:#87CEEB; --w-ws:#B39DDB; --w-data:#66CDAA;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+    background:linear-gradient(135deg,var(--dark) 0%,var(--dark-mid) 100%);
+    color:var(--light);line-height:1.55;min-height:100vh}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 1.4rem 4rem}
+  header{text-align:center;padding:2.6rem 1.4rem 2rem;
+    background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 55%,var(--primary-light) 100%);
+    border-bottom:3px solid var(--secondary);border-radius:0 0 32px 32px;margin-bottom:1.5rem}
+  header h1{font-size:2rem;letter-spacing:.2px;text-wrap:balance}
+  header .sub{opacity:.92;margin-top:.45rem;font-size:1rem}
+  header .meta{margin-top:.9rem;font-size:.8rem;opacity:.9;display:flex;gap:1.3rem;justify-content:center;flex-wrap:wrap}
+  section.card{background:var(--panel);border:1px solid var(--hair);border-radius:16px;padding:1.5rem 1.6rem;margin-bottom:1.4rem}
+  h2{font-size:1.35rem;color:#fff;display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap;
+    border-bottom:3px solid var(--primary-light);padding-bottom:.4rem;margin-bottom:.3rem}
+  h2 .role{font-size:.82rem;font-weight:400;color:var(--secondary)}
+  h3{font-size:1rem;color:var(--secondary);margin:1.1rem 0 .5rem;text-transform:uppercase;letter-spacing:.5px}
+  p{margin:.45rem 0}
+  p.lead{color:var(--text-secondary)}
+  strong{color:#fff}
+  code{font-family:'SF Mono',Consolas,monospace;background:rgba(0,0,0,.35);color:#bfe0f5;padding:.08rem .38rem;border-radius:5px;font-size:.85em}
+  .mono{font-family:'SF Mono',Consolas,monospace}
+  /* wiring rows */
+  .wires{margin:1rem 0;background:var(--panel-2);border:1px solid var(--hair);border-radius:12px;padding:.5rem .3rem}
+  .wrow{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:.6rem;padding:.32rem .7rem}
+  .pin{font-family:'SF Mono',Consolas,monospace;font-size:.9rem;font-weight:700;padding:.34rem .55rem;border-radius:7px;
+    display:flex;align-items:center;gap:.4rem;white-space:nowrap}
+  .pin.left{justify-content:flex-end;text-align:right}
+  .pin.right{justify-content:flex-start;text-align:left}
+  .pin .lbl{opacity:.72;font-weight:400;font-size:.78rem}
+  .wire{position:relative;height:0;border-top:3px solid var(--w-gnd);min-width:70px;align-self:center;border-radius:2px}
+  .wire:after{content:attr(data-sig);position:absolute;top:-1.35rem;left:50%;transform:translateX(-50%);
+    font-size:.66rem;font-family:'SF Mono',Consolas,monospace;color:var(--text-secondary);white-space:nowrap;letter-spacing:.3px}
+  .sensorpin{background:rgba(70,130,180,.2);color:#dff0fb;border:1px solid rgba(135,206,235,.3)}
+  .esppin{background:rgba(60,179,113,.16);color:#c9f2dd;border:1px solid rgba(60,179,113,.35)}
+  .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+  .w5v{border-color:var(--w-5v)!important} .d5v{background:var(--w-5v)}
+  .w3v{border-color:var(--w-3v)!important} .d3v{background:var(--w-3v)}
+  .wgnd{border-color:var(--w-gnd)!important} .dgnd{background:var(--w-gnd)}
+  .wtx{border-color:var(--w-tx)!important} .dtx{background:var(--w-tx)}
+  .wrx{border-color:var(--w-rx)!important} .drx{background:var(--w-rx)}
+  .wclk{border-color:var(--w-clk)!important} .dclk{background:var(--w-clk)}
+  .wws{border-color:var(--w-ws)!important} .dws{background:var(--w-ws)}
+  .wdata{border-color:var(--w-data)!important} .ddata{background:var(--w-data)}
+  .ends{display:flex;justify-content:space-between;padding:.2rem 1.1rem .5rem;font-size:.72rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.6px}
+  .ends b{color:var(--primary-light)}
+  .note{border-left:4px solid var(--warning);background:rgba(218,165,32,.14);padding:.75rem 1rem;border-radius:0 9px 9px 0;margin:.9rem 0;font-size:.9rem}
+  .note.danger{border-left-color:var(--danger);background:rgba(205,92,92,.15)}
+  .note.info{border-left-color:var(--primary);background:rgba(70,130,180,.16)}
+  .note.ok{border-left-color:var(--success);background:rgba(60,179,113,.14)}
+  .note .t{font-weight:700;color:#fff;display:block;margin-bottom:.2rem}
+  .tblwrap{overflow-x:auto;margin:.8rem 0;border-radius:10px;border:1px solid var(--hair)}
+  table{border-collapse:collapse;width:100%;font-size:.84rem;min-width:460px}
+  th,td{text-align:left;padding:.5rem .7rem;border-bottom:1px solid rgba(135,206,235,.12)}
+  th{background:rgba(70,130,180,.22);color:#dff0fb;font-weight:700;text-transform:uppercase;font-size:.7rem;letter-spacing:.5px}
+  tr:last-child td{border-bottom:none}
+  td.c{text-align:center}
+  .chip{display:inline-block;font-size:.68rem;font-weight:700;padding:.12rem .5rem;border-radius:999px}
+  .c5v{background:rgba(205,92,92,.22);color:#f0a3a3} .c3v{background:rgba(224,164,88,.22);color:#f0c68a}
+  .cuart{background:rgba(95,158,160,.24);color:#a9e0e0} .ci2s{background:rgba(135,206,235,.2);color:#bfe0f5}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  @media(max-width:680px){.grid2{grid-template-columns:1fr}.wrow{grid-template-columns:1fr auto 1fr}.wire{min-width:44px}header .meta{gap:.5rem}}
+  .foot{text-align:center;color:var(--text-secondary);font-size:.78rem;margin-top:1.6rem;opacity:.8}
+  ul{margin:.4rem 0 .4rem 1.2rem}li{margin:.25rem 0}
+</style>
+
+<header>
+  <h1>RuView Sensor Wiring — ESP32-S3 Standard Build</h1>
+  <div class="sub">Fixed pin map for every LD2410C, LD2450, and INMP441 node — wire once, repeat identically</div>
+  <div class="meta">
+    <span>Board: YD-ESP32-S3 N16R8 (dual USB-C)</span>
+    <span>Verified against live firmware + board pinout</span>
+    <span>Go by silkscreen GPIO #, not pin position</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+<section class="card">
+  <h2>Read this first</h2>
+  <p class="lead">These three pinouts are the <strong>canonical build</strong> pulled straight from the working ESPHome / firmware configs. Wire every new node exactly like this and the same firmware flashes with zero changes.</p>
+  <div class="grid2">
+    <div class="note danger" style="margin-top:.4rem"><span class="t">⚡ Power rail is not optional</span>Radars (LD2410C / LD2450) need <strong>5V</strong> — 3.3V gives no data or flaky data. The mic (INMP441) is <strong>3.3V</strong> — do <em>not</em> feed it 5V.</div>
+    <div class="note ok" style="margin-top:.4rem"><span class="t">✅ 5V pin already fixed on our boards</span>The YD-ESP32-S3 5V jumper has been <strong>bridged on every board in the fleet</strong>, so the <code>5V0</code> pin is live (~5V). Radars power straight from <code>5V0</code> — no per-build jumper step. (Only relevant again if you buy a brand-new unbridged board.)</div>
+  </div>
+  <div class="note info"><span class="t">📍 All our pins are on the LEFT header · silkscreen, not position</span>On this dual-USB-C board every wire lands on the <strong>left-side header</strong>. The radar cluster (<code>5V0 · GND · GPIO11 · GPIO12</code>) sits together at the <strong>bottom-left corner</strong>; the mic pins (<code>3V3 · GPIO4 · GPIO15 · GPIO16</code>) are in the upper/middle-left. The GPIO11/12 slot is often mis-counted as "pin 17/18" — always go by the <strong>printed GPIO number</strong>. Avoid GPIO19/20 (USB) and GPIO43/44 (serial log).</div>
+</section>
+
+<!-- ───────────────── LD2410C ───────────────── -->
+<section class="card">
+  <h2>LD2410C <span class="role">— 24 GHz presence + moving/still distance (single target)</span></h2>
+  <p class="lead">4 wires. Presence, distance, and energy for one aggregate target.</p>
+
+  <div class="ends"><span><b>LD2410C</b> pin</span><span>ESP32-S3 <b>(silkscreen GPIO)</b></span></div>
+  <div class="wires">
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">power</span>VCC<span class="dot d5v"></span></span>
+      <span class="wire w5v" data-sig="5 V"></span>
+      <span class="pin right esppin"><span class="dot d5v"></span>5V0<span class="lbl">(live)</span></span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">ground</span>GND<span class="dot dgnd"></span></span>
+      <span class="wire wgnd" data-sig="GND"></span>
+      <span class="pin right esppin"><span class="dot dgnd"></span>GND</span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">radar out</span>TX<span class="dot dtx"></span></span>
+      <span class="wire wtx" data-sig="UART TX→RX"></span>
+      <span class="pin right esppin"><span class="dot dtx"></span>GPIO12<span class="lbl">(S3 RX)</span></span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">radar in</span>RX<span class="dot drx"></span></span>
+      <span class="wire wrx" data-sig="UART RX←TX"></span>
+      <span class="pin right esppin"><span class="dot drx"></span>GPIO11<span class="lbl">(S3 TX)</span></span>
+    </div>
+  </div>
+  <p><span class="chip c5v">5 V power</span> <span class="chip cuart">UART 256000 8N1</span> &nbsp; Config: <code>ruview-s3-ld2410c.yaml</code></p>
+  <div class="note"><span class="t">Baud note</span>Factory default is <strong>256000</strong>; some batches ship at 115200. If you get no target data, try 115200 in the YAML once, then set it back.</div>
+</section>
+
+<!-- ───────────────── LD2450 ───────────────── -->
+<section class="card">
+  <h2>LD2450 <span class="role">— 24 GHz multi-target tracking (up to 3 people, X/Y)</span></h2>
+  <p class="lead">Same 4 wires as the LD2410C — <strong>identical pin map</strong>. The only difference is the sensor and the firmware component; the wiring does not change.</p>
+
+  <div class="ends"><span><b>LD2450</b> pin</span><span>ESP32-S3 <b>(silkscreen GPIO)</b></span></div>
+  <div class="wires">
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">power</span>VCC<span class="dot d5v"></span></span>
+      <span class="wire w5v" data-sig="5 V"></span>
+      <span class="pin right esppin"><span class="dot d5v"></span>5V0<span class="lbl">(live)</span></span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">ground</span>GND<span class="dot dgnd"></span></span>
+      <span class="wire wgnd" data-sig="GND"></span>
+      <span class="pin right esppin"><span class="dot dgnd"></span>GND</span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">radar out</span>TX<span class="dot dtx"></span></span>
+      <span class="wire wtx" data-sig="UART TX→RX"></span>
+      <span class="pin right esppin"><span class="dot dtx"></span>GPIO12<span class="lbl">(S3 RX)</span></span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">radar in</span>RX<span class="dot drx"></span></span>
+      <span class="wire wrx" data-sig="UART RX←TX"></span>
+      <span class="pin right esppin"><span class="dot drx"></span>GPIO11<span class="lbl">(S3 TX)</span></span>
+    </div>
+  </div>
+  <p><span class="chip c5v">5 V power</span> <span class="chip cuart">UART 256000 8N1</span> &nbsp; Config: <code>ruview-s3-ld2450.yaml</code></p>
+  <div class="note ok"><span class="t">Standardization win</span>Radar nodes are wire-interchangeable: a LD2410C harness fits a LD2450 with no rewiring. Only the flashed YAML differs.</div>
+</section>
+
+<!-- ───────────────── INMP441 ───────────────── -->
+<section class="card">
+  <h2>INMP441 <span class="role">— I²S MEMS microphone (audio / sound-class sensing)</span></h2>
+  <p class="lead">6 wires. Different pin cluster from the radars, and <strong>3.3V — not 5V.</strong> Tie <code>L/R</code> to GND for the left channel.</p>
+
+  <div class="ends"><span><b>INMP441</b> pin</span><span>ESP32-S3 <b>(silkscreen GPIO)</b></span></div>
+  <div class="wires">
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">power</span>VDD<span class="dot d3v"></span></span>
+      <span class="wire w3v" data-sig="3.3 V"></span>
+      <span class="pin right esppin"><span class="dot d3v"></span>3V3<span class="lbl">(NOT 5V)</span></span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">ground</span>GND<span class="dot dgnd"></span></span>
+      <span class="wire wgnd" data-sig="GND"></span>
+      <span class="pin right esppin"><span class="dot dgnd"></span>GND</span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">channel sel</span>L/R<span class="dot dgnd"></span></span>
+      <span class="wire wgnd" data-sig="→ GND = left"></span>
+      <span class="pin right esppin"><span class="dot dgnd"></span>GND</span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">bit clock</span>SCK<span class="dot dclk"></span></span>
+      <span class="wire wclk" data-sig="I²S BCLK"></span>
+      <span class="pin right esppin"><span class="dot dclk"></span>GPIO15</span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">word select</span>WS<span class="dot dws"></span></span>
+      <span class="wire wws" data-sig="I²S LRCK/WS"></span>
+      <span class="pin right esppin"><span class="dot dws"></span>GPIO16</span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">data out</span>SD<span class="dot ddata"></span></span>
+      <span class="wire wdata" data-sig="I²S DIN"></span>
+      <span class="pin right esppin"><span class="dot ddata"></span>GPIO4</span>
+    </div>
+  </div>
+  <p><span class="chip c3v">3.3 V power</span> <span class="chip ci2s">I²S (left channel)</span> &nbsp; Config: <code>audio_streamer_main.c</code> / <code>ruview-s3-mic-n2.yaml</code></p>
+  <div class="note danger"><span class="t">Do not swap the rail</span>INMP441 is a 3.3V part. Feeding it 5V from the radar harness can damage it. Keep radar and mic harnesses visually distinct.</div>
+</section>
+
+<!-- ───────────────── MAX98357 ───────────────── -->
+<section class="card">
+  <h2>MAX98357 <span class="role">— I²S Class-D amplifier (audio OUT → speaker), 3.2 W</span></h2>
+  <p class="lead">This is an <strong>output</strong> device — the reverse of the mic. The ESP32 <em>transmits</em> audio to the amp. Because it's I²S it <strong>shares the mic's BCLK + LRC clock lines</strong>, so pairing it with the INMP441 as a two-way audio node costs only one extra data pin.</p>
+
+  <h3>Primary — two-way audio node (mic + speaker, full-duplex)</h3>
+  <div class="ends"><span><b>MAX98357</b> pin</span><span>ESP32-S3 <b>(silkscreen GPIO)</b></span></div>
+  <div class="wires">
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">power</span>VIN<span class="dot d5v"></span></span>
+      <span class="wire w5v" data-sig="5 V"></span>
+      <span class="pin right esppin"><span class="dot d5v"></span>5V0<span class="lbl">(live)</span></span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">ground</span>GND<span class="dot dgnd"></span></span>
+      <span class="wire wgnd" data-sig="GND"></span>
+      <span class="pin right esppin"><span class="dot dgnd"></span>GND</span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">audio in</span>DIN<span class="dot dtx"></span></span>
+      <span class="wire wtx" data-sig="I²S DOUT→DIN"></span>
+      <span class="pin right esppin"><span class="dot dtx"></span>GPIO5<span class="lbl">(ESP data OUT)</span></span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">bit clock</span>BCLK<span class="dot dclk"></span></span>
+      <span class="wire wclk" data-sig="shared w/ mic"></span>
+      <span class="pin right esppin"><span class="dot dclk"></span>GPIO15<span class="lbl">(shared BCLK)</span></span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">word select</span>LRC<span class="dot dws"></span></span>
+      <span class="wire wws" data-sig="shared w/ mic"></span>
+      <span class="pin right esppin"><span class="dot dws"></span>GPIO16<span class="lbl">(shared LRC)</span></span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">enable</span>SD<span class="dot d3v"></span></span>
+      <span class="wire w3v" data-sig="&gt;1.4V = on"></span>
+      <span class="pin right esppin"><span class="dot d3v"></span>3V3<span class="lbl">(on; mono L+R/2)</span></span>
+    </div>
+    <div class="wrow">
+      <span class="pin left sensorpin"><span class="lbl">gain</span>GAIN<span class="dot dgnd"></span></span>
+      <span class="wire wgnd" data-sig="floating = 15 dB"></span>
+      <span class="pin right esppin"><span class="dot dgnd"></span>—<span class="lbl">leave floating (100k→GND = 12 dB)</span></span>
+    </div>
+  </div>
+  <p><span class="chip c5v">5 V power</span> <span class="chip ci2s">I²S out · shares mic clocks</span> &nbsp; New firmware — see integration plan below.</p>
+
+  <h3>Alternate — standalone speaker node</h3>
+  <p>If the amp is on its own board (no mic), keep the clock convention and pick a fresh data pin:</p>
+  <p class="mono" style="background:var(--panel-2);border:1px solid var(--hair);border-radius:10px;padding:.7rem .9rem;font-size:.86rem">
+    VIN → 5V0 &nbsp;·&nbsp; GND → GND &nbsp;·&nbsp; DIN → GPIO7 &nbsp;·&nbsp; BCLK → GPIO15 &nbsp;·&nbsp; LRC → GPIO16 &nbsp;·&nbsp; SD → 3V3 &nbsp;·&nbsp; GAIN → floating
+  </p>
+  <div class="note"><span class="t">SD is enable + channel-select, not just shutdown</span>Tie to 3V3 to turn on. The breakout's default divider outputs mono <code>(L+R)/2</code>. For a <strong>stereo pair</strong> (your two amps on one board sharing DIN/BCLK/LRC), set one amp Left and one Right via each SD-pin divider.</div>
+</section>
+
+<!-- ───────────────── SUMMARY ───────────────── -->
+<section class="card">
+  <h2>One-glance summary</h2>
+  <div class="tblwrap"><table>
+    <thead><tr><th>Sensor</th><th>Power</th><th>GND</th><th>Data → ESP32-S3</th><th>Bus</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>LD2410C</strong><br><span style="font-size:.75rem;color:var(--text-secondary)">presence</span></td>
+        <td class="c"><span class="chip c5v">5Vin</span></td>
+        <td class="c">GND</td>
+        <td><span class="mono">TX→GPIO12 · RX→GPIO11</span></td>
+        <td class="c"><span class="chip cuart">UART 256k</span></td>
+      </tr>
+      <tr>
+        <td><strong>LD2450</strong><br><span style="font-size:.75rem;color:var(--text-secondary)">X/Y tracking</span></td>
+        <td class="c"><span class="chip c5v">5Vin</span></td>
+        <td class="c">GND</td>
+        <td><span class="mono">TX→GPIO12 · RX→GPIO11</span></td>
+        <td class="c"><span class="chip cuart">UART 256k</span></td>
+      </tr>
+      <tr>
+        <td><strong>INMP441</strong><br><span style="font-size:.75rem;color:var(--text-secondary)">microphone (in)</span></td>
+        <td class="c"><span class="chip c3v">3V3</span></td>
+        <td class="c">GND + L/R</td>
+        <td><span class="mono">SCK→15 · WS→16 · SD→4</span></td>
+        <td class="c"><span class="chip ci2s">I²S in</span></td>
+      </tr>
+      <tr>
+        <td><strong>MAX98357</strong><br><span style="font-size:.75rem;color:var(--text-secondary)">amplifier (out)</span></td>
+        <td class="c"><span class="chip c5v">5V0</span></td>
+        <td class="c">GND</td>
+        <td><span class="mono">DIN→5 · BCLK→15 · LRC→16</span></td>
+        <td class="c"><span class="chip ci2s">I²S out</span></td>
+      </tr>
+    </tbody>
+  </table></div>
+  <div class="note info"><span class="t">Pin plan across all devices</span>Radars use GPIO11/12 (UART). The mic (in) uses 15/16/4; the amp (out) reuses the same <strong>15/16 clocks</strong> and adds <strong>GPIO5</strong> for data-out. So one ESP32-S3 can run <em>radar + mic + speaker together</em> — full two-way audio sensing node — with zero pin collisions.</div>
+  <h3>Wire-color convention (suggested, keep it consistent)</h3>
+  <ul>
+    <li><span style="color:var(--w-5v)">■</span> <strong>Red</strong> → 5V &nbsp;·&nbsp; <span style="color:var(--w-3v)">■</span> <strong>Orange</strong> → 3.3V &nbsp;·&nbsp; <span style="color:var(--w-gnd)">■</span> <strong>Black</strong> → GND</li>
+    <li><span style="color:var(--w-tx)">■</span> <strong>Green</strong> → TX/data-out &nbsp;·&nbsp; <span style="color:var(--w-rx)">■</span> <strong>Teal</strong> → RX/data-in</li>
+    <li>Radar harness = red power; mic harness = orange power. Never mix.</li>
+  </ul>
+</section>
+
+<!-- ───────────────── INTEGRATION PLAN ───────────────── -->
+<section class="card">
+  <h2>Integrating the speaker with RuView Sensing <span class="role">— closing the loop: sense → respond → listen</span></h2>
+  <p class="lead">Today RuView is <strong>inbound only</strong> (sensors → Pi). The MAX98357 adds an <strong>outbound</strong> path so the node can <em>respond</em> — the missing half of the elder-care graduated-response mission (detect a fall or distress, then speak to the person and listen for their answer).</p>
+
+  <h3>Where it plugs into the existing pipeline</h3>
+  <div class="flow"><pre>  EXISTING (inbound sensing)                         NEW (outbound response)
+  ┌───────────┐  UDP/MQTT  ┌────────────────────┐   MQTT   ┌──────────────────┐
+  │ ESP32-S3  │──audio────►│ Orange Pi           │─play───►│ ESP32-S3         │
+  │ INMP441   │  radar────►│  ruview-sensing     │ prompt  │ MAX98357 → 🔊    │
+  │ LD2410/50 │            │  ruview-audiod:3025 │         │ (same node = A)  │
+  └───────────┘            │  (YAMNet + fusion)  │◄─"I'm OK"┘  mic re-listens  │
+                           └─────────┬───────────┘   audio
+                                     │ escalate if no reply
+                                     ▼  app / caregiver notify</pre></div>
+
+  <h3>Design decisions</h3>
+  <div class="tblwrap"><table>
+    <thead><tr><th>Concern</th><th>Choice</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Command channel</strong> (Pi → speaker)</td><td><strong>MQTT</strong> topic <code>ruview/audio/&lt;node&gt;/play</code></td><td>mosquitto (:1883) is already on the Pi; ESPHome/ESP32 nodes already speak MQTT. No new transport.</td></tr>
+      <tr><td><strong>Firmware path</strong></td><td><strong>ESPHome</strong> <code>i2s_audio</code> + <code>speaker</code>/<code>media_player</code> (full-duplex bus shared with the mic)</td><td>Mature two-way stack; mic + speaker on one I²S bus; less custom C than extending the raw streamer.</td></tr>
+      <tr><td><strong>Audio content</strong></td><td>Pre-recorded prompts on-node for POC; Pi-side TTS later</td><td>Offline, instant, no cloud dependency for safety-critical prompts ("Are you OK?", "Calling for help").</td></tr>
+      <tr><td><strong>Trigger logic</strong></td><td>New responder in <code>ruview-sensing</code> / <code>ruview-audiod</code>: event → publish play → await mic reply → escalate</td><td>Keeps the decision in the sensing brain; the node stays a dumb actuator.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Phased plan</h3>
+  <div class="phase-row" style="display:flex;flex-direction:column;gap:.7rem;margin-top:.6rem">
+    <div class="note info" style="margin:0"><span class="t">Phase 1 — speaker brought up (hardware)</span>Wire per the map above; flash an ESPHome node with <code>i2s_audio</code> + <code>media_player</code>; play a test WAV via MQTT. Proves the amp + full-duplex bus with the mic.</div>
+    <div class="note info" style="margin:0"><span class="t">Phase 2 — command path in ruview-sensing</span>Add <code>POST /audio/announce {node, prompt}</code> to the sensing REST API → publishes the MQTT play topic. App/CLI can trigger a prompt on demand.</div>
+    <div class="note info" style="margin:0"><span class="t">Phase 3 — closed-loop response</span>Wire a real trigger (fall from radar / distress-sound from YAMNet) → announce check-in → listen on the mic for an "I'm OK" (keyword or button/app) within N seconds → if none, <strong>escalate</strong> to the app / caregiver. This is the graduated-response scenario end-to-end.</div>
+    <div class="note ok" style="margin:0"><span class="t">Phase 4 — ship it via OTA</span>Roll the two-way-audio firmware + the ruview-sensing responder through the goosebit/SWUpdate pipeline (see the OTA project plan). No new delivery mechanism needed.</div>
+  </div>
+  <div class="note"><span class="t">Open items to confirm before Phase 1</span>(1) ESPHome vs extend the C streamer for the mic+speaker node; (2) prompt set + language; (3) how the person signals "I'm OK" (voice keyword vs app vs physical button); (4) escalation target + timeout. These are product calls, tracked separately from the wiring.</div>
+</section>
+
+<p class="foot">RuView standard build · radar/mic pins verified against ruview-s3-ld2410c.yaml, ruview-s3-ld2450.yaml, audio_streamer_main.c / ruview-s3-mic-n2.yaml · MAX98357 = new integration (greenfield) · go by silkscreen GPIO number</p>
+
+</div>

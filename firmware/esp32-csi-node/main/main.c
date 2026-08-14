@@ -122,6 +122,12 @@ static void wifi_init_sta(void)
         wifi_config.sta.threshold.authmode = WIFI_AUTH_OPEN;
     }
 
+    /* 2026-06-17 — BSSID lock removed. The Firefly multi-AP mesh is no
+     * longer in use; the deployment runs on a single-AP router (Beryl
+     * AX3000 / NorimNetwork) without client isolation, so association
+     * to any BSSID on the configured SSID is fine. */
+    wifi_config.sta.bssid_set = false;
+
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
 

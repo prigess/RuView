@@ -261,7 +261,12 @@ v1/src/sensing/mac_wifi
 
 # Local build scripts
 firmware/esp32-csi-node/build_firmware.batdata/
-models/
+# `/models/` (root-only) — ML model artifacts (.pt/.onnx). The trailing-only
+# match was `models/` originally, which on case-insensitive macOS filesystems
+# silently swallowed mobile/ios/RuView/Models/ too, so the iOS app's
+# Models.swift was never tracked → testers couldn't compile. Pinning to the
+# repo root fixes both cases.
+/models/
 demo_pointcloud.ply
 demo_splats.json
 
@@ -271,6 +276,21 @@ v2/crates/rvcsi-node/binding.js
 v2/crates/rvcsi-node/binding.d.ts
 v2/crates/rvcsi-node/npm/
 
+# macOS / Xcode local state
+.DS_Store
+**/.DS_Store
+**/xcuserdata/
+**/*.xcuserstate
+
+# Sensing-server runtime data (recordings, persisted config)
+v2/data/recordings/
+v2/data/config.json
+v2/data/*.bin
+
+# ESPHome local secrets (WiFi creds, API keys, OTA password)
+firmware/esphome/secrets.yaml
+firmware/esphome/.esphome/
+firmware/esphome/build/
 # AetherArena private optimization staging — never published until reviewed
 aether-arena/staging/
 

@@ -241,6 +241,54 @@ struct Args {
     /// `GET /api/v1/edge/registry`. Use for air-gapped deployments.
     #[arg(long, env = "RUVIEW_NO_EDGE_REGISTRY")]
     no_edge_registry: bool,
+
+    // ─── C6 ESPHome radar bridge ───────────────────────────────────────────
+    /// Enable the ESP32-C6 + MR60BHA2 radar bridge. Setting this turns on the
+    /// HTTP fallback poller and (if `--c6-mqtt-host` is also set) the MQTT
+    /// subscriber. The bridge synthesises ADR-039 vitals packets to
+    /// `127.0.0.1:<--udp-port>` so the existing UDP receiver decodes them.
+    #[arg(long, env = "RUVIEW_C6_HOST", value_name = "HOST")]
+    c6_radar_host: Option<String>,
+
+    /// `node_id` stamped on outgoing radar vitals packets.
+    #[arg(long, env = "RUVIEW_C6_NODE_ID", default_value = "1")]
+    c6_radar_node_id: u8,
+
+    /// MQTT broker host (typically `127.0.0.1` if mosquitto runs on the Pi).
+    /// Leave unset to run HTTP-only mode.
+    #[arg(long, env = "RUVIEW_C6_MQTT_HOST", value_name = "HOST")]
+    c6_mqtt_host: Option<String>,
+
+    /// MQTT broker port.
+    #[arg(long, env = "RUVIEW_C6_MQTT_PORT", default_value = "1883")]
+    c6_mqtt_port: u16,
+
+    /// ESPHome `topic_prefix` for the C6 device.
+    #[arg(long, env = "RUVIEW_C6_MQTT_PREFIX", default_value = "ruview-c6-radar")]
+    c6_mqtt_topic_prefix: String,
+
+    // ─── ESP32-S3 + LD2410 radar bridge (Node 2 by default) ────────────────
+    /// Enable the ESP32-S3 + LD2410 radar bridge. Same ESPHome+MQTT path
+    /// as the C6 bridge, but uses LD2410 protocol topics and stamps
+    /// radar_type=2 (LD2410). Leave unset to disable.
+    #[arg(long, env = "RUVIEW_LD2410_HOST", value_name = "HOST")]
+    ld2410_radar_host: Option<String>,
+
+    /// `node_id` stamped on outgoing LD2410 vitals packets.
+    #[arg(long, env = "RUVIEW_LD2410_NODE_ID", default_value = "2")]
+    ld2410_radar_node_id: u8,
+
+    /// MQTT broker host for the LD2410 bridge.
+    #[arg(long, env = "RUVIEW_LD2410_MQTT_HOST", value_name = "HOST")]
+    ld2410_mqtt_host: Option<String>,
+
+    /// MQTT broker port for the LD2410 bridge.
+    #[arg(long, env = "RUVIEW_LD2410_MQTT_PORT", default_value = "1883")]
+    ld2410_mqtt_port: u16,
+
+    /// ESPHome `topic_prefix` for the LD2410 device.
+    #[arg(long, env = "RUVIEW_LD2410_MQTT_PREFIX", default_value = "ruview-s3-ld2410-n2")]
+    ld2410_mqtt_topic_prefix: String,
 }
 
 // ── Data types ───────────────────────────────────────────────────────────────
@@ -1408,10 +1456,14 @@ struct Esp32VitalsPacket {
     presence: bool,
     fall_detected: bool,
     motion: bool,
+    radar_present: bool,
     breathing_rate_bpm: f64,
     heartrate_bpm: f64,
     rssi: i8,
     n_persons: u8,
+    radar_type: u8,      // 0=none, 1=MR60BHA2, 2=LD2410
+    radar_targets: u8,
+    radar_dist_cm: u16,
     motion_energy: f32,
     presence_score: f32,
     timestamp_ms: u32,
@@ -1433,19 +1485,26 @@ fn parse_esp32_vitals(buf: &[u8]) -> Option<Esp32VitalsPacket> {
     let heartrate_raw = u32::from_le_bytes([buf[8], buf[9], buf[10], buf[11]]);
     let rssi = buf[12] as i8;
     let n_persons = buf[13];
+    let radar_type = buf[14];
+    let radar_targets = buf[15];
     let motion_energy = f32::from_le_bytes([buf[16], buf[17], buf[18], buf[19]]);
     let presence_score = f32::from_le_bytes([buf[20], buf[21], buf[22], buf[23]]);
     let timestamp_ms = u32::from_le_bytes([buf[24], buf[25], buf[26], buf[27]]);
+    let radar_dist_cm = u16::from_le_bytes([buf[28], buf[29]]);
 
     Some(Esp32VitalsPacket {
         node_id,
         presence: (flags & 0x01) != 0,
         fall_detected: (flags & 0x02) != 0,
         motion: (flags & 0x04) != 0,
+        radar_present: (flags & 0x08) != 0,
         breathing_rate_bpm: breathing_raw as f64 / 100.0,
         heartrate_bpm: heartrate_raw as f64 / 10000.0,
         rssi,
         n_persons,
+        radar_type,
+        radar_targets,
+        radar_dist_cm,
         motion_energy,
         presence_score,
         timestamp_ms,
@@ -2290,9 +2349,9 @@ fn raw_classify(score: f64) -> String {
 }
 
 /// Debounce frames required before state transition (at ~10 FPS = ~0.4s).
-const DEBOUNCE_FRAMES: u32 = 4;
+const DEBOUNCE_FRAMES: u32 = 2;  // Faster state transitions
 /// EMA alpha for motion smoothing (~1s time constant at 10 FPS).
-const MOTION_EMA_ALPHA: f64 = 0.15;
+const MOTION_EMA_ALPHA: f64 = 0.25;  // More responsive to motion changes
 /// EMA alpha for slow-adapting baseline (~30s time constant at 10 FPS).
 const BASELINE_EMA_ALPHA: f64 = 0.003;
 /// Number of warm-up frames before baseline subtraction kicks in.
@@ -2413,10 +2472,16 @@ fn adaptive_override(
             amps,
         );
         let (label, conf) = model.classify(&feat_arr);
-        classification.motion_level = label.to_string();
-        classification.presence = label != "absent";
-        // Blend model confidence with existing smoothed confidence.
-        classification.confidence = (conf * 0.7 + classification.confidence * 0.3).clamp(0.0, 1.0);
+        // Only override if model has high confidence (> 60%) AND was trained well (> 70%)
+        // Otherwise keep the raw classification which is more reliable
+        if conf > 0.60 && model.training_accuracy > 0.70 {
+            classification.motion_level = label.to_string();
+            classification.presence = label != "absent";
+            classification.confidence = (conf * 0.7 + classification.confidence * 0.3).clamp(0.0, 1.0);
+        } else {
+            // Blend confidence but keep raw classification
+            classification.confidence = (conf * 0.3 + classification.confidence * 0.7).clamp(0.0, 1.0);
+        }
     }
 }
 
@@ -2839,11 +2904,13 @@ async fn windows_wifi_task(state: SharedState, tick_ms: u64) {
         );
         s.last_tracker_instant = last_tracker_instant;
         if !tracked.is_empty() {
+            update.estimated_persons = Some(tracked.len());
             update.persons = Some(tracked);
         }
         // #1050: attach real signal_field-peak positions to each person.
         attach_field_positions(&mut update);
 
+        apply_radar_override(&s, &mut update);
         if let Ok(json) = serde_json::to_string(&update) {
             let _ = s.tx.send(json);
         }
@@ -2991,15 +3058,20 @@ async fn windows_wifi_fallback_tick(state: &SharedState, seq: u32) {
 
     let raw_persons = derive_pose_from_sensing(&update);
     let mut last_tracker_instant = s.last_tracker_instant.take();
-    let tracked =
-        tracker_bridge::tracker_update(&mut s.pose_tracker, &mut last_tracker_instant, raw_persons);
+    let tracked = tracker_bridge::tracker_update(
+        &mut s.pose_tracker,
+        &mut last_tracker_instant,
+        raw_persons,
+    );
     s.last_tracker_instant = last_tracker_instant;
     if !tracked.is_empty() {
+        update.estimated_persons = Some(tracked.len());
         update.persons = Some(tracked);
     }
     // #1050: attach real signal_field-peak positions to each person.
     attach_field_positions(&mut update);
 
+    apply_radar_override(&s, &mut update);
     if let Ok(json) = serde_json::to_string(&update) {
         let _ = s.tx.send(json);
     }
@@ -4326,6 +4398,37 @@ fn derive_single_person_pose(
     let min_y = ys.iter().cloned().fold(f64::MAX, f64::min) - 10.0;
     let max_x = xs.iter().cloned().fold(f64::MIN, f64::max) + 10.0;
     let max_y = ys.iter().cloned().fold(f64::MIN, f64::max) + 10.0;
+
+    // Derive pose type from motion level and posture
+    let pose_type = if let Some(ref posture) = update.posture {
+        match posture.as_str() {
+            "lying" | "fallen" => "lying",
+            "sitting" => "sitting",
+            _ if is_walking => "walking",
+            _ => "standing",
+        }
+    } else if is_walking {
+        "walking"
+    } else {
+        "standing"
+    };
+
+    // Convert 2D pixel position to 3D world coordinates for Observatory
+    // Observatory uses: X = left/right, Y = up (always 0 for ground), Z = forward/back
+    // Map pixel X (0-640) to world X (-5 to 5), pixel Y to world Z
+    let world_x = (base_x - 320.0) / 64.0; // Center at 0, scale to ~±5 meters
+    let world_z = (base_y - 240.0) / 48.0; // Map Y to Z depth
+
+    // Per-person spatial offset in world coordinates
+    let half_w = (total_persons as f64 - 1.0) / 2.0;
+    let person_world_x = world_x + (person_idx as f64 - half_w) * 1.5; // 1.5m spacing
+
+    // Facing direction based on motion (walking direction)
+    let facing = if is_walking {
+        stride_x.signum() * 0.3 // Face movement direction
+    } else {
+        0.0
+    };
 
     PersonDetection {
         id: (person_idx + 1) as u32,
@@ -5667,6 +5770,17 @@ async fn nodes_endpoint(State(state): State<SharedState>) -> Json<serde_json::Va
             let stale = elapsed_ms > 5000;
             let status = if stale { "stale" } else { "active" };
             let rssi = ns.rssi_history.back().copied().unwrap_or(-90.0);
+            // Extract radar info from edge_vitals if available
+            let (radar_type, radar_present, radar_dist_cm) = ns.edge_vitals.as_ref()
+                .map(|ev| {
+                    let rtype = match ev.radar_type {
+                        1 => "MR60BHA2",
+                        2 => "LD2410",
+                        _ => "none",
+                    };
+                    (rtype, ev.radar_present, ev.radar_dist_cm)
+                })
+                .unwrap_or(("none", false, 0));
             serde_json::json!({
                 "node_id": id,
                 "status": status,
@@ -5674,6 +5788,9 @@ async fn nodes_endpoint(State(state): State<SharedState>) -> Json<serde_json::Va
                 "rssi_dbm": rssi,
                 "motion_level": &ns.current_motion_level,
                 "person_count": ns.prev_person_count,
+                "radar_type": radar_type,
+                "radar_present": radar_present,
+                "radar_dist_cm": radar_dist_cm,
             })
         })
         .collect();
@@ -5855,8 +5972,11 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                     }
 
                     // Store per-node person count from edge vitals.
+                    // Cap at 2 per node to prevent ESP32 firmware from inflating
+                    // the count (firmware calculates n_persons = top_k_count/2
+                    // which can be 4 regardless of actual presence).
                     let node_est = if vitals.presence {
-                        (vitals.n_persons as usize).max(1)
+                        (vitals.n_persons as usize).clamp(1, 2)
                     } else {
                         0
                     };
@@ -6052,11 +6172,13 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                     );
                     s.last_tracker_instant = last_tracker_instant;
                     if !tracked.is_empty() {
+                        update.estimated_persons = Some(tracked.len());
                         update.persons = Some(tracked);
                     }
                     // #1050: attach real signal_field-peak positions to each person.
                     attach_field_positions(&mut update);
 
+                    apply_radar_override(&s, &mut update);
                     if let Ok(json) = serde_json::to_string(&update) {
                         let _ = s.tx.send(json);
                     }
@@ -6366,7 +6488,7 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                                 let count =
                                     aggregate_person_count(s.person_count(), &s.node_states);
                                 s.prev_person_count = count;
-                                count.max(1)
+                                count
                             }
                             None => {
                                 aggregate_person_count(fallback_count.unwrap_or(0), &s.node_states)
@@ -6489,11 +6611,13 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                     );
                     s.last_tracker_instant = last_tracker_instant;
                     if !tracked.is_empty() {
+                        update.estimated_persons = Some(tracked.len());
                         update.persons = Some(tracked);
                     }
                     // #1050: attach real signal_field-peak positions to each person.
                     attach_field_positions(&mut update);
 
+                    apply_radar_override(&s, &mut update);
                     if let Ok(json) = serde_json::to_string(&update) {
                         let _ = s.tx.send(json);
                     }
@@ -6747,6 +6871,7 @@ async fn simulated_data_task(state: SharedState, tick_ms: u64) {
         );
         s.last_tracker_instant = last_tracker_instant;
         if !tracked.is_empty() {
+            update.estimated_persons = Some(tracked.len());
             update.persons = Some(tracked);
         }
         // #1050: attach real signal_field-peak positions to each person.
@@ -6755,6 +6880,7 @@ async fn simulated_data_task(state: SharedState, tick_ms: u64) {
         if update.classification.presence {
             s.total_detections += 1;
         }
+        apply_radar_override(&s, &mut update);
         if let Ok(json) = serde_json::to_string(&update) {
             let _ = s.tx.send(json);
         }
@@ -6764,6 +6890,170 @@ async fn simulated_data_task(state: SharedState, tick_ms: u64) {
 }
 
 // ── Broadcast tick task (for ESP32 mode, sends buffered state) ───────────────
+
+/// `node_id`s of nodes whose `edge_vitals.presence` is authoritative for
+/// occupancy. Both the C6 + MR60BHA2 (Node 4) and the S3 + LD2410 (Node 2)
+/// are real radars — CSI heuristic node counts on the other slots
+/// hallucinate phantoms. If ANY radar reports presence=true, we take that
+/// as ground-truth occupancy=1; if all radars say absent, occupancy=0.
+const RADAR_NODE_IDS: &[u8] = &[4, 2];
+
+/// How long after the last radar frame we still trust it as authoritative.
+/// Beyond this, fall back to the CSI/tracker estimate.
+const RADAR_AUTHORITATIVE_WINDOW: Duration = Duration::from_secs(5);
+
+/// If any registered radar node has fresh edge_vitals, return its person
+/// count as the canonical value; otherwise return `None` and the caller
+/// should fall back to whatever the CSI pipeline produced. Radars are
+/// single-target — `n_persons` is clamped to {0, 1} per radar, and the
+/// max across radars is used (so an LD2410 catching someone the MR60
+/// missed, or vice versa, still surfaces as "1 person").
+fn radar_authoritative_person_count(state: &AppStateInner) -> Option<usize> {
+    // Demo escape hatch (2026-06-17): the MR60BHA2 has a narrow ±60° FoV
+    // and ~3 m range, so unless it's aimed perfectly at the demo subject
+    // it reports target_count=0 and forces the iOS app to show 0 Persons.
+    // Setting `RUVIEW_RADAR_AUTHORITATIVE=false` returns None here so the
+    // CSI tracker's person count wins. Layer 2 defensive consistency in
+    // apply_radar_override still runs — no "presence-false but persons>0"
+    // contradictions can leak through.
+    if std::env::var("RUVIEW_RADAR_AUTHORITATIVE")
+        .map(|v| v.eq_ignore_ascii_case("false") || v == "0")
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    let now = std::time::Instant::now();
+    let mut any_fresh = false;
+    let mut any_present = false;
+    for &id in RADAR_NODE_IDS {
+        let Some(node) = state.node_states.get(&id) else { continue };
+        let Some(last) = node.last_frame_time else { continue };
+        if now.duration_since(last) > RADAR_AUTHORITATIVE_WINDOW { continue; }
+        any_fresh = true;
+        if let Some(vitals) = node.edge_vitals.as_ref() {
+            if vitals.presence {
+                any_present = true;
+                break; // one true is enough
+            }
+        }
+    }
+    if !any_fresh { return None; }
+    Some(if any_present { 1 } else { 0 })
+}
+
+/// Apply the radar-takes-precedence override to a SensingUpdate that's about
+/// to be broadcast. When the C6 radar has fresh edge_vitals, its person count
+/// supersedes the CSI tracker's count (which historically over-counts due to
+/// environmental noise — see the "5 phantom persons" demo issue on
+/// 2026-06-11). When the radar is stale (> RADAR_AUTHORITATIVE_WINDOW), the
+/// update is left untouched and CSI fallback wins.
+///
+/// Call this just before every `tx.send(serde_json::to_string(&update))` so
+/// direct emits (high-rate, CSI frame receive path) and the periodic
+/// broadcast tick alike present the radar-grounded truth.
+fn apply_radar_override(state: &AppStateInner, update: &mut SensingUpdate) {
+    // ── Layer 1: radar-authoritative count + vital_signs override ──
+    // When at least one radar node has fresh edge_vitals, its presence flag
+    // becomes the ground-truth occupancy count, overriding the CSI tracker.
+    if let Some(radar_count) = radar_authoritative_person_count(state) {
+        update.estimated_persons = Some(radar_count);
+
+        // Force classification to match radar truth. Without this, CSI false
+        // positives (75% empty-room presence=true measured 2026-06-17) leak
+        // through and produce contradictions like "0 Persons detected /
+        // Presence: Detected / Motion: Active" in the iOS Occupancy view.
+        if radar_count == 0 {
+            update.classification.presence = false;
+            update.classification.motion_level = "absent".to_string();
+            update.classification.confidence = 0.85;
+        } else {
+            update.classification.presence = true;
+            if update.classification.motion_level == "absent" {
+                update.classification.motion_level = "present_still".to_string();
+            }
+            update.classification.confidence = 0.85;
+        }
+
+        if let Some(ref mut persons) = update.persons {
+            if persons.len() > radar_count {
+                // Keep highest-confidence tracks so the Skeleton tab still draws
+                // someone when someone is there — just no phantoms.
+                persons.sort_by(|a, b| {
+                    b.confidence
+                        .partial_cmp(&a.confidence)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                persons.truncate(radar_count);
+            }
+            if radar_count == 0 {
+                persons.clear();
+            }
+        }
+
+        // Override vital_signs from the freshest radar node too. Otherwise S3 CSI
+        // nodes' edge_vitals — which carry CSI-derived HR/BR heuristics that are
+        // wildly off (BR ~8 BPM when the radar measures 21) — overwrite the
+        // global vital_signs slot whenever they emit, since the UDP receiver
+        // updates `s.edge_vitals` regardless of source. By sourcing vital_signs
+        // here from the radar node's own edge_vitals snapshot, the iOS app sees
+        // radar-grade vitals consistently.
+        let now = std::time::Instant::now();
+        for &id in RADAR_NODE_IDS {
+            let Some(node) = state.node_states.get(&id) else { continue };
+            let Some(last) = node.last_frame_time else { continue };
+            if now.duration_since(last) > RADAR_AUTHORITATIVE_WINDOW { continue; }
+            let Some(rv) = node.edge_vitals.as_ref() else { continue };
+            update.vital_signs = Some(VitalSigns {
+                heart_rate_bpm: if rv.heartrate_bpm > 0.0 { Some(rv.heartrate_bpm) } else { None },
+                breathing_rate_bpm: if rv.breathing_rate_bpm > 0.0 { Some(rv.breathing_rate_bpm) } else { None },
+                heartbeat_confidence: if rv.presence { 0.85 } else { 0.0 },
+                breathing_confidence: if rv.presence { 0.85 } else { 0.0 },
+                signal_quality: rv.presence_score as f64,
+            });
+            break;
+        }
+    }
+
+    // ── Layer 2: defensive consistency clamp ──────────────────────
+    // Even if the radar override returned early (radar stale, no fresh frames),
+    // an internally inconsistent snapshot — where classification.presence is
+    // false but estimated_persons or persons[] is non-zero — must never reach
+    // the iOS app. This is the bug that produced the "1 Person detected" /
+    // "Presence: Not detected" contradiction on 2026-06-16: the CSI person
+    // tracker kept hallucinating a track even after motion_level dropped to
+    // absent. Force the snapshot to be self-consistent here.
+    if !update.classification.presence {
+        update.estimated_persons = Some(0);
+        if let Some(ref mut persons) = update.persons {
+            persons.clear();
+        }
+    }
+
+    // ── Layer 3: single-occupancy clamp (2026-06-17) ──────────────
+    // Elder-care monitoring assumes ≤1 person. When the radar-authoritative
+    // override is disabled (demo geometry doesn't put C6 in the subject's
+    // line of sight), the CSI tracker over-counts wildly — flapping 0↔5 in
+    // adjacent frames. Cap at 1 when presence is true, and trim persons[]
+    // to the highest-confidence track so the Skeleton view still shows a
+    // body. Remove this when the tracker's hysteresis is properly tuned.
+    if update.classification.presence {
+        if update.estimated_persons.unwrap_or(0) > 1 {
+            update.estimated_persons = Some(1);
+        }
+        if update.estimated_persons.unwrap_or(0) == 0 {
+            update.estimated_persons = Some(1);
+        }
+        if let Some(ref mut persons) = update.persons {
+            if persons.len() > 1 {
+                persons.sort_by(|a, b| {
+                    b.confidence.partial_cmp(&a.confidence)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                persons.truncate(1);
+            }
+        }
+    }
+}
 
 async fn broadcast_tick_task(state: SharedState, tick_ms: u64) {
     let mut interval = tokio::time::interval(Duration::from_millis(tick_ms));
@@ -6780,12 +7070,10 @@ async fn broadcast_tick_task(state: SharedState, tick_ms: u64) {
                 // before each broadcast so a stale latest_update (frozen
                 // payload from a now-offline ESP32) is emitted with
                 // `source: "esp32:offline"` instead of `source: "esp32"`.
-                // The REST `/health` endpoint already does this; before
-                // this fix the WS path was the only consumer that didn't,
-                // so the UI's "LIVE — ESP32 HARDWARE Connected" banner
-                // stayed green long after the hardware went away.
                 let mut tagged = update.clone();
                 tagged.source = s.effective_source();
+                apply_radar_override(&s, &mut tagged);
+
                 if let Ok(json) = serde_json::to_string(&tagged) {
                     let _ = s.tx.send(json);
                 }
@@ -8108,7 +8396,55 @@ async fn main() {
         tokio::spawn(simulated_data_task(state.clone(), args.tick_ms));
     }
 
-    // ADR-166: Parse bind address once, use for all listeners
+    // ESPHome radar bridges — MQTT primary, HTTP fallback. Each instance
+    // synthesises 32-byte ADR-039 vitals packets and emits them to
+    // 127.0.0.1:<udp_port>. That requires the UDP receiver to be running,
+    // so we spawn it here too even when --source is not `esp32`.
+    let any_radar_bridge =
+        args.c6_radar_host.is_some() || args.ld2410_radar_host.is_some();
+    if any_radar_bridge && !matches!(source, "esp32") {
+        info!("Radar bridge(s) enabled: starting UDP receiver + broadcast tick (source={source})");
+        tokio::spawn(udp_receiver_task(state.clone(), args.udp_port));
+        tokio::spawn(broadcast_tick_task(state.clone(), args.tick_ms));
+    }
+
+    // C6 + MR60BHA2 (Node 4 by default — south radar with vital signs)
+    if let Some(http_host) = args.c6_radar_host.clone() {
+        let mut cfg = wifi_densepose_sensing_server::c6_radar_bridge::C6RadarConfig::http_only(
+            http_host,
+            args.udp_port,
+        );
+        cfg.node_id = args.c6_radar_node_id;
+        cfg.radar_type = wifi_densepose_sensing_server::c6_radar_bridge::RADAR_TYPE_MR60BHA2;
+        if let Some(mqtt_host) = args.c6_mqtt_host.clone() {
+            cfg = cfg.with_mqtt(
+                mqtt_host,
+                args.c6_mqtt_port,
+                args.c6_mqtt_topic_prefix.clone(),
+            );
+        }
+        wifi_densepose_sensing_server::c6_radar_bridge::spawn(cfg);
+    }
+
+    // S3 + LD2410 (Node 2 by default — long-range presence/range)
+    if let Some(http_host) = args.ld2410_radar_host.clone() {
+        let mut cfg = wifi_densepose_sensing_server::c6_radar_bridge::C6RadarConfig::http_only(
+            http_host,
+            args.udp_port,
+        );
+        cfg.node_id = args.ld2410_radar_node_id;
+        cfg.radar_type = wifi_densepose_sensing_server::c6_radar_bridge::RADAR_TYPE_LD2410;
+        if let Some(mqtt_host) = args.ld2410_mqtt_host.clone() {
+            cfg = cfg.with_mqtt(
+                mqtt_host,
+                args.ld2410_mqtt_port,
+                args.ld2410_mqtt_topic_prefix.clone(),
+            );
+        }
+        wifi_densepose_sensing_server::c6_radar_bridge::spawn(cfg);
+    }
+
+    // ADR-050: Parse bind address once, use for all listeners
     let bind_ip: std::net::IpAddr = args
         .bind_addr
         .parse()

@@ -9,6 +9,7 @@
 //! - Real-time CSI introspection / low-latency tap (`introspection`, ADR-099)
 
 pub mod bearer_auth;
+pub mod c6_radar_bridge;
 pub mod browser_session;
 pub mod ws_ticket;
 pub mod cli;
@@ -28,6 +29,7 @@ pub mod semantic;
 pub mod rufield_surface;
 pub mod rvf_container;
 pub mod rvf_pipeline;
+pub mod sensor_fusion;
 pub mod semconv;
 pub mod telemetry;
 #[allow(dead_code)]

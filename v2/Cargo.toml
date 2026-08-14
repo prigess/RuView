@@ -62,6 +62,11 @@ members = [
     # WiFi BFI captures. Sub-ADRs: 119 (frame), 120 (privacy class),
     # 121 (identity risk), 122 (HA/Matter), 123 (capture path).
     "crates/wifi-densepose-bfld",
+    # Passive BLE-advertisement scanner — Pi-side daemon that republishes
+    # observed BLE devices to MQTT (`ruview-ble/<id>/state`).  First step
+    # toward integrating BLE medical devices (CGMs, BP cuffs, scales, pulse
+    # oximeters, panic pendants) into the RuView sensing pipeline. Linux-only.
+    "crates/ruview-ble-scanner",
     # ADR-147: OccWorld thin-client bridge — WorldGraph PersonTrack history →
     # OccWorld Python subprocess → TrajectoryPrior injection into pose tracker.
     # worldmodel extracted to ruvnet/worldgraph submodule (consumed via path dep)
