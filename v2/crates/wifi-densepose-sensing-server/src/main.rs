@@ -4713,6 +4713,13 @@ async fn health_ready(State(state): State<SharedState>) -> Json<serde_json::Valu
             "engine_error_count": s.engine_bridge.engine_error_count(),
             "raw_outputs_suppressed": s.engine_bridge.suppress_raw_outputs(),
         },
+        // RuView release version so the app can show what service is running and
+        // reflect updates live. `release` is the shipped version stamped into
+        // /etc/sw_version by the OTA installer; `build` is the compiled crate.
+        "version": {
+            "release": release_version(),
+            "build": env!("CARGO_PKG_VERSION"),
+        },
     }))
 }
 
@@ -4740,9 +4747,22 @@ async fn health_system(State(state): State<SharedState>) -> Json<serde_json::Val
     }))
 }
 
+/// The RuView release version currently running. It is stamped into
+/// `/etc/sw_version` by the OTA installer on each successful update, so it
+/// reflects what was shipped — falling back to the compile-time crate version
+/// on dev / non-OTA hosts where the file is absent.
+fn release_version() -> String {
+    std::fs::read_to_string("/etc/sw_version")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string())
+}
+
 async fn health_version() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "version": env!("CARGO_PKG_VERSION"),
+        "release": release_version(),
         "name": "wifi-densepose-sensing-server",
         "backend": "rust+axum+ruvector",
     }))
